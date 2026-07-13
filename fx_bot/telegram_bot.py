@@ -54,7 +54,7 @@ async def notify(app: Application, text: str) -> None:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Bot FX V2 en marcha.\n"
-        "/status /positions /closeall /stop /resume /risk /dailyrisk"
+        "/status /positions /stats /closeall /stop /resume /risk /dailyrisk"
     )
 
 
@@ -67,6 +67,12 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @_authorized
 async def cmd_positions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = await asyncio.to_thread(_trader(context).positions_text)
+    await update.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
+
+
+@_authorized
+async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    txt = await asyncio.to_thread(_trader(context).journal_text)
     await update.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
 
 
@@ -138,6 +144,7 @@ def build_application(trader: Trader) -> Application:
     app.add_handler(CommandHandler(["start", "help"], cmd_start))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("positions", cmd_positions))
+    app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("closeall", cmd_closeall))
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("resume", cmd_resume))

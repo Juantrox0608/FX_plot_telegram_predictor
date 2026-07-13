@@ -21,8 +21,9 @@ from pathlib import Path
 import pandas as pd
 
 import mt5_client as mc
-from config import CHECKPOINT_DIR, CONFIG
+from config import CHECKPOINT_DIR, CONFIG, DATA_DIR
 from executor import close_all, get_positions, open_from_signal
+from journal import Journal
 from news import NewsFilter
 from strategy import Signal, compute_signal, load_model
 
@@ -50,6 +51,7 @@ class Trader:
         self.timeframe = timeframe
         self.state = TraderState()
         self.news = NewsFilter()
+        self.journal = Journal(DATA_DIR / "journal.db")
         ckpt_path = CHECKPOINT_DIR / f"{symbol}_{timeframe}_4y_gru.pt"
         self.model, self.ckpt = load_model(ckpt_path)
 
@@ -156,6 +158,13 @@ class Trader:
         res = open_from_signal(sig, self.symbol, acc["balance"])
         if res.ok:
             self.state.known_tickets.add(res.ticket)
+            self.journal.log_open(
+                ticket=res.ticket, symbol=self.symbol, timeframe=self.timeframe,
+                direction=sig.direction, bar_time=last_time, pred_ret=sig.pred_ret,
+                threshold=sig.threshold, confidence=sig.confidence, votes=sig.votes,
+                risk_pct=sig.risk_pct, atr=sig.atr, entry=res.price,
+                sl=res.sl, tp=res.tp, lot=res.volume,
+            )
             events.append({"type": "opened",
                            "text": (f"{lado} {self.symbol} abierta ✅\n"
                                     f"Ticket {res.ticket} | {res.volume} lotes @ {res.price}\n"
@@ -170,21 +179,42 @@ class Trader:
         current = {p["ticket"] for p in get_positions(self.symbol)}
         closed = self.state.known_tickets - current
         for ticket in closed:
-            profit = self._closed_profit(ticket)
-            emoji = "🟢" if (profit or 0) >= 0 else "🔴"
+            profit, close_price = self._closed_result(ticket)
+            self.journal.log_close(ticket=ticket, close_price=close_price,
+                                   profit=profit, exit_reason=self._infer_exit(ticket, close_price))
+            p = profit if profit is not None else 0.0
+            emoji = "🟢" if p >= 0 else "🔴"
             events.append({"type": "closed",
-                           "text": f"{emoji} Posición {ticket} cerrada. Resultado: {profit:+.2f} USD"})
+                           "text": f"{emoji} Posición {ticket} cerrada. Resultado: {p:+.2f} USD"})
         self.state.known_tickets = current
         return events
 
-    def _closed_profit(self, ticket: int) -> float | None:
+    def _closed_result(self, ticket: int) -> tuple[float | None, float | None]:
+        """Devuelve (profit total, precio de cierre) de los deals de la posición."""
         try:
             deals = mc.mt5.history_deals_get(position=ticket)
             if deals:
-                return round(sum(d.profit for d in deals), 2)
+                profit = round(sum(d.profit for d in deals), 2)
+                # el último deal (entry=OUT) trae el precio de cierre
+                close_price = deals[-1].price
+                return profit, close_price
         except Exception:
             pass
-        return None
+        return None, None
+
+    def _infer_exit(self, ticket: int, close_price: float | None) -> str:
+        """Deduce si salió por SL o TP comparando con los niveles guardados."""
+        if close_price is None:
+            return ""
+        try:
+            with self.journal._conn() as c:
+                row = c.execute("SELECT sl, tp FROM trades WHERE ticket=?", (ticket,)).fetchone()
+            if row and row[0] and row[1]:
+                sl, tp = row
+                return "tp" if abs(close_price - tp) <= abs(close_price - sl) else "sl"
+        except Exception:
+            pass
+        return "manual"
 
     # ---------- consultas para Telegram ----------
     def status_text(self) -> str:
@@ -210,6 +240,16 @@ class Trader:
             e = nxt[0]
             lines.append(f"Próxima noticia alto impacto: {e.currency} {e.title} @ {e.when:%H:%M UTC}")
         return "\n".join(lines)
+
+    def journal_text(self) -> str:
+        s = self.journal.stats()
+        return (
+            "📒 *Diario (datos para reentrenar la IA)*\n"
+            f"Operaciones cerradas: {s['closed']} | abiertas: {s['open']}\n"
+            f"Win rate: {s['win_rate']}% | P/L total: {s['total_profit']:+.2f} USD\n"
+            f"Expectativa: {s['expectancy']:+.4f} USD/op\n"
+            f"Base de datos: data/journal.db"
+        )
 
     def positions_text(self) -> str:
         pos = get_positions(self.symbol)
