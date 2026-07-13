@@ -19,17 +19,19 @@ Al entrar, primero:
 - Ejecuta **Windows Update** y reinicia si hace falta.
 - Ajusta la zona horaria si quieres (no afecta al bot: todo va en UTC).
 
-## 2. Instalar Python 3.12
+## 2. Instalar Python 3.14.3
 
-Descarga Python **3.12.x** (64-bit) de python.org.
+Descarga Python **3.14.3** (64-bit) de python.org — **la misma versión del PC**
+donde se entrenó el modelo, para que todo se comporte idéntico.
 - En el instalador marca **"Add python.exe to PATH"**.
 - Verifica en PowerShell:
   ```powershell
-  python --version
+  python --version   # debe decir Python 3.14.3
   ```
 
-> Usamos 3.12 por máxima compatibilidad de librerías. (Local probamos 3.14 y
-> también sirvió, pero 3.12 es lo más seguro en el VPS.)
+> `requirements.txt` fija las versiones exactas ya probadas (torch 2.13.0,
+> pandas 3.0.0, numpy 2.4.2, etc.), así que el `pip install` deja el VPS igual
+> que tu PC.
 
 ## 3. Instalar MetaTrader 5 (Vantage) e iniciar sesión demo
 
