@@ -41,7 +41,7 @@ class TrainCfg:
     patience: int = 8
     spread_cost: float = 0.00007   # ~0.7 pips por operación
     thr_mult: float = 1.0          # umbral = thr_mult * media|pred| (solo señales fuertes)
-    trend_filter: bool = True      # solo operar a favor de la TMA
+    trend_filter: bool = False     # los indicadores modulan el RIESGO, no vetan la operación
 
 
 def _standardize_fit(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -116,6 +116,7 @@ def train(df: pd.DataFrame, cfg: TrainCfg, device: str = "cpu", verbose: bool = 
         "f_mean": f_mean, "f_std": f_std, "t_mean": t_mean, "t_std": t_std,
         "T": cfg.T, "horizon": cfg.horizon, "thr_mult": cfg.thr_mult,
         "trend_filter": cfg.trend_filter, "val_mse": best_val, "metrics": metrics,
+        "signal_threshold": metrics["signal_threshold"],
     }
     return model, ckpt, metrics
 
@@ -146,6 +147,7 @@ def backtest(model, Xva, va, t_mean, t_std, cfg: TrainCfg, device, verbose=True)
     metrics = {
         "n_val": int(len(real_ret)),
         "n_trades": n_trades,
+        "signal_threshold": float(thr),   # umbral fijo para usar en vivo
         "win_rate": round(float(wins.mean()) * 100, 1) if n_trades else 0.0,
         "dir_accuracy": round(float(dir_ok.mean()) * 100, 1) if n_trades else 0.0,
         "cum_return_pct": round(float(pnl.sum()) * 100, 2),
@@ -167,13 +169,13 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", type=str, default=str(DATA_DIR / "EURUSD_H1_4y.parquet"))
     ap.add_argument("--horizon", type=int, default=TrainCfg.horizon)
-    ap.add_argument("--no-trend-filter", action="store_true", help="desactiva el filtro de tendencia")
+    ap.add_argument("--trend-filter", action="store_true", help="activa el filtro de tendencia (por defecto: no)")
     args = ap.parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(42); np.random.seed(42)
 
     df = pd.read_parquet(args.data)
-    cfg = TrainCfg(horizon=args.horizon, trend_filter=not args.no_trend_filter)
+    cfg = TrainCfg(horizon=args.horizon, trend_filter=args.trend_filter)
     model, ckpt, _ = train(df, cfg, device=device)
     out = CHECKPOINT_DIR / f"{Path(args.data).stem}_gru.pt"
     torch.save(ckpt, out)
