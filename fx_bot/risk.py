@@ -20,6 +20,7 @@ class SymbolSpec:
     volume_step: float
     digits: int
     point: float
+    stops_level: int = 0  # trade_stops_level: distancia mínima SL/TP en points
 
 
 def _round_step(volume: float, step: float) -> float:
@@ -72,15 +73,18 @@ def atr_levels(
     spec: SymbolSpec,
     sl_mult: float = 1.5,
     tp_mult: float = 1.5,
+    min_stop_price: float = 0.0,
 ) -> Levels:
     """
     Calcula SL/TP basados en ATR. Por defecto RR = 1:1 (sl=tp=1.5*ATR): es la
     única relación que resultó rentable en el backtest evento-a-evento, porque
     el edge de la IA es de corto alcance y un TP lejano rara vez se alcanza.
+    `min_stop_price` fuerza una distancia mínima (stop del broker / spread) para
+    evitar stops degenerados (útil sobre todo en M1, donde el ATR es diminuto).
     direction: +1 compra, -1 venta.
     """
-    sl_dist = atr * sl_mult
-    tp_dist = atr * tp_mult
+    sl_dist = max(atr * sl_mult, min_stop_price)
+    tp_dist = max(atr * tp_mult, min_stop_price)
     if direction > 0:  # compra
         sl = entry - sl_dist
         tp = entry + tp_dist

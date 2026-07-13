@@ -24,7 +24,7 @@ async def _on_start(app):
         f"Cuenta {acc['login']} @ {acc['server']} "
         f"({'DEMO' if acc['is_demo'] else 'REAL'})\n"
         f"Balance {acc['balance']:.2f} {acc['currency']} | "
-        f"{CONFIG.symbol} H1 | riesgo {CONFIG.risk_percent}%\n"
+        f"{CONFIG.symbol} {CONFIG.timeframe} | riesgo {CONFIG.risk_percent}%\n"
         f"Escribe /status para ver el estado.",
     )
 

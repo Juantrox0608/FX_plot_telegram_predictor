@@ -23,6 +23,7 @@ import pandas as pd
 import mt5_client as mc
 from config import CHECKPOINT_DIR, CONFIG
 from executor import close_all, get_positions, open_from_signal
+from news import NewsFilter
 from strategy import Signal, compute_signal, load_model
 
 BARS_LOOKBACK = 300  # velas H1 que traemos para indicadores + ventana
@@ -44,18 +45,20 @@ class TraderState:
 
 
 class Trader:
-    def __init__(self, symbol: str = CONFIG.symbol):
+    def __init__(self, symbol: str = CONFIG.symbol, timeframe: str = CONFIG.timeframe):
         self.symbol = symbol
+        self.timeframe = timeframe
         self.state = TraderState()
-        ckpt_path = CHECKPOINT_DIR / f"{symbol}_H1_4y_gru.pt"
+        self.news = NewsFilter()
+        ckpt_path = CHECKPOINT_DIR / f"{symbol}_{timeframe}_4y_gru.pt"
         self.model, self.ckpt = load_model(ckpt_path)
 
     # ---------- utilidades MT5 ----------
     def _timeframe(self):
-        return mc.timeframe_const("H1")
+        return mc.timeframe_const(self.timeframe)
 
     def _recent_closed_bars(self) -> pd.DataFrame:
-        """Últimas velas H1 SIN la vela en formación (la última cerrada es -1 aquí)."""
+        """Últimas velas SIN la vela en formación (la última cerrada es -1 aquí)."""
         rates = mc.mt5.copy_rates_from_pos(self.symbol, self._timeframe(), 0, BARS_LOOKBACK)
         if rates is None or len(rates) == 0:
             raise RuntimeError(f"Sin datos de {self.symbol}: {mc.mt5.last_error()}")
@@ -136,6 +139,13 @@ class Trader:
             events.append({"type": "paused", "text": f"⏸️ Señal {lado} pero el trading está pausado."})
             return events
 
+        # Filtro de noticias: no operar cerca de eventos de alto impacto
+        blocked, why = self.news.is_blocked(self.symbol)
+        if blocked:
+            events.append({"type": "news",
+                           "text": f"📰 Señal {lado} bloqueada por noticia de alto impacto: {why}"})
+            return events
+
         # Solo auto-abrir en DEMO
         if not acc["is_demo"]:
             events.append({"type": "confirm",
@@ -147,7 +157,7 @@ class Trader:
         if res.ok:
             self.state.known_tickets.add(res.ticket)
             events.append({"type": "opened",
-                           "text": (f"{lado} EURUSD abierta ✅\n"
+                           "text": (f"{lado} {self.symbol} abierta ✅\n"
                                     f"Ticket {res.ticket} | {res.volume} lotes @ {res.price}\n"
                                     f"SL {res.sl} | TP {res.tp} | riesgo {sig.risk_pct}%\n"
                                     f"{sig.reason}")})
@@ -183,7 +193,7 @@ class Trader:
         st = self.state
         lines = [
             f"🤖 *Estado del bot*",
-            f"Símbolo: {self.symbol} (H1)",
+            f"Símbolo: {self.symbol} ({self.timeframe})",
             f"Modo: {'DEMO' if acc['is_demo'] else 'REAL'} | Trading: {'ON ✅' if st.running else 'PAUSA ⏸️'}",
             f"Balance: {acc['balance']:.2f} | Equity: {acc['equity']:.2f} {acc['currency']}",
             f"Riesgo base: {st.base_risk}% (máx {st.max_risk}%) | Kill-switch diario: {st.daily_max_loss}%",
@@ -195,6 +205,10 @@ class Trader:
             s = st.last_signal
             d = {1: "COMPRA", -1: "VENTA", 0: "ESPERAR"}[s.direction]
             lines.append(f"Última señal: {d} ({s.pred_ret*10000:+.1f} bp, conf {int(s.confidence*100)}%)")
+        nxt = self.news.next_events(self.symbol, hours=12)
+        if nxt:
+            e = nxt[0]
+            lines.append(f"Próxima noticia alto impacto: {e.currency} {e.title} @ {e.when:%H:%M UTC}")
         return "\n".join(lines)
 
     def positions_text(self) -> str:

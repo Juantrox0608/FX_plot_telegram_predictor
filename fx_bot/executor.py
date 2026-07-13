@@ -40,6 +40,7 @@ def get_symbol_spec(symbol: str) -> SymbolSpec:
         volume_step=si.volume_step,
         digits=si.digits,
         point=si.point,
+        stops_level=si.trade_stops_level,
     )
 
 
@@ -50,6 +51,28 @@ def _prices(symbol: str) -> tuple[float, float]:
     if tick is None:
         raise RuntimeError(f"symbol_info_tick None para {symbol}: {mt5.last_error()}")
     return tick.ask, tick.bid
+
+
+def _round_step(volume: float, step: float) -> float:
+    if step <= 0:
+        return volume
+    return round(round(volume / step) * step, 8)
+
+
+def _fit_lot_to_margin(symbol: str, order_type, price: float, lot: float, spec) -> float:
+    """Reduce el lote si el margen requerido supera el margen libre (90%)."""
+    acc = mt5.account_info()
+    if acc is None or acc.margin_free <= 0:
+        return lot
+    margin = mt5.order_calc_margin(order_type, symbol, lot, price)
+    if margin is None or margin <= 0:
+        return lot
+    budget = acc.margin_free * 0.9
+    if margin <= budget:
+        return lot
+    scaled = lot * (budget / margin)
+    scaled = _round_step(scaled, spec.volume_step)
+    return scaled if scaled >= spec.volume_min else 0.0
 
 
 def _filling_mode(symbol: str):
@@ -82,12 +105,22 @@ def open_from_signal(
     ask, bid = _prices(symbol)
     entry = ask if signal.direction > 0 else bid
 
-    levels = atr_levels(signal.direction, entry, signal.atr, spec, sl_mult, tp_mult)
+    # Distancia mínima de stop: el mayor entre el stop del broker y ~3x el spread,
+    # para que en M1 (ATR diminuto) los stops no queden pegados al precio.
+    spread = max(0.0, ask - bid)
+    min_stop = max(spec.stops_level * spec.point, spread * 3)
+
+    levels = atr_levels(signal.direction, entry, signal.atr, spec, sl_mult, tp_mult, min_stop)
     lot = lot_for_risk(balance, signal.risk_pct, levels.sl_distance, spec)
     if lot <= 0:
         return OrderResult(False, "Lote calculado 0 (revisa riesgo/ATR/límites del símbolo)")
 
     order_type = mt5.ORDER_TYPE_BUY if signal.direction > 0 else mt5.ORDER_TYPE_SELL
+
+    # Chequeo de margen: si el lote no cabe, reducirlo hasta lo que permita el margen libre.
+    lot = _fit_lot_to_margin(symbol, order_type, entry, lot, spec)
+    if lot <= 0:
+        return OrderResult(False, "Margen insuficiente para el lote mínimo")
     request = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": symbol,
