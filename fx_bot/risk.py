@@ -71,11 +71,12 @@ def atr_levels(
     atr: float,
     spec: SymbolSpec,
     sl_mult: float = 1.5,
-    tp_mult: float = 3.0,
+    tp_mult: float = 1.5,
 ) -> Levels:
     """
-    Calcula SL/TP basados en ATR. Por defecto TP = 2x el SL (RR = 2:1):
-    dejamos correr las ganancias más que las pérdidas.
+    Calcula SL/TP basados en ATR. Por defecto RR = 1:1 (sl=tp=1.5*ATR): es la
+    única relación que resultó rentable en el backtest evento-a-evento, porque
+    el edge de la IA es de corto alcance y un TP lejano rara vez se alcanza.
     direction: +1 compra, -1 venta.
     """
     sl_dist = atr * sl_mult

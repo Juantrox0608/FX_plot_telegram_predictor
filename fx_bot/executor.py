@@ -70,7 +70,7 @@ def open_from_signal(
     symbol: str,
     balance: float,
     sl_mult: float = 1.5,
-    tp_mult: float = 3.0,
+    tp_mult: float = 1.5,
     deviation: int = 20,
 ) -> OrderResult:
     """Dimensiona y envía una orden a mercado a partir de una señal."""
