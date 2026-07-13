@@ -5,8 +5,8 @@ MetaTrader5==5.0.5735
 # Bot de Telegram (API async moderna)
 python-telegram-bot==22.8
 
-# IA
-torch==2.5.1
+# IA (torch 2.13 es lo compatible con Python 3.14; CPU es suficiente para el GRU)
+torch>=2.5
 
 # Datos e indicadores
 pandas>=2.2
