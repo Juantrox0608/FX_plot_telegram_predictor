@@ -1,0 +1,20 @@
+# === FX Bot V2 — dependencias Python ===
+# Broker / datos / órdenes (solo Windows)
+MetaTrader5==5.0.5735
+
+# Bot de Telegram (API async moderna)
+python-telegram-bot==22.8
+
+# IA
+torch==2.5.1
+
+# Datos e indicadores
+pandas>=2.2
+numpy>=2.1
+pyarrow>=17.0   # guardar/leer datasets en parquet
+
+# Calendario económico (descarga/parseo)
+requests==2.32.3
+
+# Config / secretos
+python-dotenv==1.2.2
