@@ -123,6 +123,12 @@ async def cmd_dailyrisk(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------- loop programado ----------------
+# Solo avisamos de eventos ACCIONABLES. Los repetitivos (sin señal, señal con
+# posición ya abierta, pausado) NO se notifican para no llenar el chat cada vela;
+# se consultan con /status y /positions.
+NOTIFY_TYPES = {"opened", "closed", "killswitch", "error", "confirm", "news"}
+
+
 async def trading_job(context: ContextTypes.DEFAULT_TYPE):
     trader = context.application.bot_data["trader"]
     try:
@@ -131,8 +137,7 @@ async def trading_job(context: ContextTypes.DEFAULT_TYPE):
         await notify(context.application, f"❌ Error en el ciclo: {e}")
         return
     for ev in events:
-        # No spameamos "sin señal" en cada vela; solo eventos relevantes
-        if ev["type"] == "nosignal":
+        if ev["type"] not in NOTIFY_TYPES:
             continue
         await notify(context.application, ev["text"])
 
