@@ -54,7 +54,8 @@ async def notify(app: Application, text: str) -> None:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Bot FX V2 en marcha.\n"
-        "/status /positions /stats /closeall /stop /resume /risk /dailyrisk"
+        "/status /positions /stats /closeall /stop /resume\n"
+        "/risk /maxrisk /dailyrisk"
     )
 
 
@@ -122,6 +123,24 @@ async def cmd_dailyrisk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Kill-switch de pérdida diaria fijado en {val}%.")
 
 
+@_authorized
+async def cmd_maxrisk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fija el riesgo MÁXIMO por operación (el techo cuando los indicadores confirman)."""
+    try:
+        val = float(context.args[0])
+        assert 1.0 <= val <= 5.0
+    except (IndexError, ValueError, AssertionError):
+        await update.message.reply_text("Uso: /maxrisk <1-5>")
+        return
+    st = _trader(context).state
+    st.max_risk = val
+    msg = f"✅ Riesgo máximo por operación fijado en {val}%."
+    if st.base_risk > val:            # el base no puede superar al máximo
+        st.base_risk = val
+        msg += f"\n(Ajusté también el riesgo base a {val}%.)"
+    await update.message.reply_text(msg)
+
+
 # ---------------- loop programado ----------------
 # Solo avisamos de eventos ACCIONABLES. Los repetitivos (sin señal, señal con
 # posición ya abierta, pausado) NO se notifican para no llenar el chat cada vela;
@@ -154,6 +173,7 @@ def build_application(trader: Trader) -> Application:
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("resume", cmd_resume))
     app.add_handler(CommandHandler("risk", cmd_risk))
+    app.add_handler(CommandHandler("maxrisk", cmd_maxrisk))
     app.add_handler(CommandHandler("dailyrisk", cmd_dailyrisk))
 
     app.job_queue.run_repeating(trading_job, interval=CHECK_INTERVAL, first=10)
