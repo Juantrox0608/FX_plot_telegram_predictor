@@ -35,6 +35,8 @@ class PairsConfig:
     lookback: int = 20
     entry_z: float = 2.0
     exit_z: float = 0.0
+    stop_z: float = 0.0      # 0 = sin stop; si |z| supera esto en contra, cortar
+    min_corr: float = 0.0    # 0 = sin filtro; correlación mínima para abrir
     use_beta: bool = False   # BASE = 1:1; True = hedge ratio rodante (mejora)
 
 
@@ -69,7 +71,13 @@ def decide(z_now: float, position: int, cfg: PairsConfig) -> Action:
         if z_now > cfg.entry_z:
             return Action.OPEN_SHORT
         return Action.HOLD
-    # con posición abierta: cerrar al volver al centro
+    # con posición abierta: stop de seguridad si el spread se dispara en contra
+    if cfg.stop_z > 0:
+        if position == 1 and z_now < -cfg.stop_z:
+            return Action.CLOSE
+        if position == -1 and z_now > cfg.stop_z:
+            return Action.CLOSE
+    # cerrar al volver al centro
     if position == 1 and z_now >= -cfg.exit_z:
         return Action.CLOSE
     if position == -1 and z_now <= cfg.exit_z:

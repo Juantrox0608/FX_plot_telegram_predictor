@@ -30,6 +30,8 @@ LEVERAGE = 500
 def simulate(eur, gbp, cfg: PairsConfig, start=100.0, capital_per_unit=100.0) -> dict:
     j = pd.DataFrame({"a": eur["close"], "b": gbp["close"]}).dropna()
     z, _ = zscore(j["a"], j["b"], cfg)
+    corr = (np.log(j["a"]).diff().rolling(cfg.lookback)
+            .corr(np.log(j["b"]).diff())).values
     a = j["a"].values; b = j["b"].values; zz = z.values
     n = len(a)
 
@@ -42,6 +44,8 @@ def simulate(eur, gbp, cfg: PairsConfig, start=100.0, capital_per_unit=100.0) ->
             continue
         if pos == 0:
             act = decide(zz[i], 0, cfg)
+            if cfg.min_corr > 0 and not (np.isfinite(corr[i]) and corr[i] >= cfg.min_corr):
+                act = Action.HOLD  # relación no correlacionada -> no operar
             if act in (Action.OPEN_LONG, Action.OPEN_SHORT):
                 # tamaño: 1 unidad (0.01 lote/pata) por cada 'capital_per_unit' de balance
                 units = max(1, int(balance // capital_per_unit))
@@ -82,14 +86,22 @@ def simulate(eur, gbp, cfg: PairsConfig, start=100.0, capital_per_unit=100.0) ->
 def main():
     eur = to_daily(pd.read_parquet(DATA_DIR / "EURUSD_H1_6y.parquet"))
     gbp = to_daily(pd.read_parquet(DATA_DIR / "GBPUSD_H1_6y.parquet"))
-    cfg = PairsConfig()  # BASE: 1:1, lookback 20, entry_z 2
     print(f"Backtest PAIRS EUR/GBP | cuenta $100 | {eur.index.min().date()} -> "
-          f"{eur.index.max().date()} (6 años D1)\n")
-    print("Sweep de agresividad (capital por cada 0.01 lote/pata):")
-    rows = [simulate(eur, gbp, cfg, start=100.0, capital_per_unit=c)
-            for c in (200, 100, 50, 25)]
+          f"{eur.index.max().date()} (6 años D1) | cap/unit=200 (conservador)\n")
+
+    configs = {
+        "BASE (1:1, sin controles)": PairsConfig(),
+        "+ stop_z=3.5":              PairsConfig(stop_z=3.5),
+        "+ stop + corr>0.6":         PairsConfig(stop_z=3.5, min_corr=0.6),
+        "+ stop + corr + hedge β":   PairsConfig(stop_z=3.5, min_corr=0.6, use_beta=True),
+    }
+    rows = []
+    for name, cfg in configs.items():
+        r = simulate(eur, gbp, cfg, start=100.0, capital_per_unit=200.0)
+        r = {"config": name, **{k: v for k, v in r.items() if k != "cap/unit"}}
+        rows.append(r)
     print(pd.DataFrame(rows).to_string(index=False))
-    print("\nMenor 'cap/unit' = más agresivo (más lotes por balance).")
+    print("\nObjetivo: bajar el maxDD manteniendo el retorno. Solo se queda lo que ayuda.")
 
 
 if __name__ == "__main__":
