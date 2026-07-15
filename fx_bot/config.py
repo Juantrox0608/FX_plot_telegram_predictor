@@ -61,6 +61,15 @@ class Config:
     # Datos
     history_years: int
 
+    # Pairs (arbitraje estadístico)
+    pair_a: str
+    pair_b: str
+    pairs_lookback: int
+    pairs_entry_z: float
+    pairs_stop_z: float
+    pairs_min_corr: float
+    pairs_cap_per_unit: float
+
     def validate(self) -> list[str]:
         """Devuelve una lista de problemas de configuración (vacía si todo OK)."""
         problems: list[str] = []
@@ -95,6 +104,13 @@ def load_config() -> Config:
         daily_max_loss_percent=_get_float("DAILY_MAX_LOSS_PERCENT", 5.0),
         mode=(_get("MODE", "demo") or "demo").lower(),
         history_years=_get_int("HISTORY_YEARS", 4),
+        pair_a=_get("PAIR_A", "EURUSD") or "EURUSD",
+        pair_b=_get("PAIR_B", "GBPUSD") or "GBPUSD",
+        pairs_lookback=_get_int("PAIRS_LOOKBACK", 20),
+        pairs_entry_z=_get_float("PAIRS_ENTRY_Z", 2.0),
+        pairs_stop_z=_get_float("PAIRS_STOP_Z", 3.5),
+        pairs_min_corr=_get_float("PAIRS_MIN_CORR", 0.6),
+        pairs_cap_per_unit=_get_float("PAIRS_CAP_PER_UNIT", 200.0),
     )
 
 
