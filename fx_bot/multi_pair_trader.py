@@ -15,7 +15,6 @@ import pandas as pd
 
 import mt5_client as mc
 from config import CONFIG, DATA_DIR
-from demo_license import demo_status
 from executor import PAIRS_MAGIC, close_pair, open_pair, pair_positions
 from journal import Journal
 from pairs_strategy import Action, PairsConfig, decide, zscore
@@ -103,11 +102,6 @@ class MultiPairTrader:
     # ---------- ciclo ----------
     def check(self) -> list[dict]:
         events: list[dict] = []
-
-        if demo_status().is_expired:
-            self.state.running = False
-            return [{"type": "license", "text": f"Demo vencida. Trading pausado. {demo_status().summary()}"}]
-
         acc = self.account()
 
         # Kill-switch GLOBAL de cuenta
