@@ -231,19 +231,20 @@ def _market_order(symbol: str, side: int, lot: float, magic: int,
     return OrderResult(True, "OK", ticket=result.order, volume=lot, price=result.price)
 
 
-def open_pair(direction: int, symbol_a: str, symbol_b: str, lot: float) -> dict:
+def open_pair(direction: int, symbol_a: str, symbol_b: str, lot: float,
+              magic: int = PAIRS_MAGIC) -> dict:
     """
     Abre las 2 patas. direction=+1 -> LONG A / SHORT B ; -1 -> SHORT A / LONG B.
+    Cada par usa su propio `magic` para no mezclarse con otros pares.
     Si la 2ª pata falla, cierra la 1ª para no quedar con una pata desnuda.
-    Devuelve {ok, message, leg_a, leg_b}.
     """
     _require_mt5()
     side_a = 1 if direction > 0 else -1
     side_b = -side_a
-    ra = _market_order(symbol_a, side_a, lot, PAIRS_MAGIC, "pairs_a")
+    ra = _market_order(symbol_a, side_a, lot, magic, "pairs_a")
     if not ra.ok:
         return {"ok": False, "message": f"Pata A falló: {ra.message}", "leg_a": ra, "leg_b": None}
-    rb = _market_order(symbol_b, side_b, lot, PAIRS_MAGIC, "pairs_b")
+    rb = _market_order(symbol_b, side_b, lot, magic, "pairs_b")
     if not rb.ok:
         close_position(ra.ticket)  # rollback pata A
         return {"ok": False, "message": f"Pata B falló (revertí A): {rb.message}",
@@ -251,11 +252,11 @@ def open_pair(direction: int, symbol_a: str, symbol_b: str, lot: float) -> dict:
     return {"ok": True, "message": "Par abierto", "leg_a": ra, "leg_b": rb}
 
 
-def pair_positions() -> list[dict]:
-    """Posiciones abiertas del bot de pairs (por su magic)."""
-    return [p for p in get_positions() if p["magic"] == PAIRS_MAGIC]
+def pair_positions(magic: int = PAIRS_MAGIC) -> list[dict]:
+    """Posiciones abiertas de un par (por su magic)."""
+    return [p for p in get_positions() if p["magic"] == magic]
 
 
-def close_pair() -> list[OrderResult]:
-    """Cierra todas las patas del bot de pairs."""
-    return [close_position(p["ticket"]) for p in pair_positions()]
+def close_pair(magic: int = PAIRS_MAGIC) -> list[OrderResult]:
+    """Cierra todas las patas de un par."""
+    return [close_position(p["ticket"]) for p in pair_positions(magic)]
