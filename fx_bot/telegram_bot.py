@@ -18,6 +18,7 @@ import functools
 
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from config import CONFIG
@@ -42,11 +43,41 @@ def _trader(context: ContextTypes.DEFAULT_TYPE) -> Trader:
 
 
 async def notify(app: Application, text: str) -> None:
-    try:
-        await app.bot.send_message(chat_id=CONFIG.tg_chat_id, text=text,
-                                   parse_mode=ParseMode.MARKDOWN)
-    except Exception:
-        await app.bot.send_message(chat_id=CONFIG.tg_chat_id, text=text)
+    """Envía un mensaje reintentando ante errores de red (Bad Gateway/timeout).
+
+    Los 502 de Telegram son transitorios; reintentamos en silencio y, si aun así
+    falla, no dejamos que la excepción tumbe el ciclo del bot.
+    """
+    for attempt in range(3):
+        try:
+            await app.bot.send_message(chat_id=CONFIG.tg_chat_id, text=text,
+                                       parse_mode=ParseMode.MARKDOWN)
+            return
+        except (NetworkError, TimedOut):
+            if attempt < 2:
+                await asyncio.sleep(3 * (attempt + 1))
+                continue
+            return  # se pierde este aviso, pero el bot sigue vivo
+        except Exception:
+            # Probable problema de formato Markdown: reintenta como texto plano.
+            try:
+                await app.bot.send_message(chat_id=CONFIG.tg_chat_id, text=text)
+            except Exception:
+                pass
+            return
+
+
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manejador global: traga los errores de red transitorios en silencio.
+
+    Sin esto, un `Bad Gateway` de Telegram imprime un traceback enorme cada vez.
+    Los errores de red se ignoran (Telegram se recupera solo); el resto se
+    registra de forma compacta.
+    """
+    err = context.error
+    if isinstance(err, (NetworkError, TimedOut)):
+        return  # 502/timeout transitorio de Telegram: silencio
+    print(f"[telegram] error no de red: {type(err).__name__}: {err}")
 
 
 # ---------------- comandos ----------------
@@ -145,7 +176,7 @@ async def cmd_maxrisk(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Solo avisamos de eventos ACCIONABLES. Los repetitivos (sin señal, señal con
 # posición ya abierta, pausado) NO se notifican para no llenar el chat cada vela;
 # se consultan con /status y /positions.
-NOTIFY_TYPES = {"opened", "closed", "killswitch", "error", "confirm", "news"}
+NOTIFY_TYPES = {"opened", "closed", "killswitch", "error", "confirm", "news", "license"}
 
 
 async def trading_job(context: ContextTypes.DEFAULT_TYPE):
@@ -162,8 +193,18 @@ async def trading_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 def build_application(trader: Trader) -> Application:
-    app = Application.builder().token(CONFIG.tg_bot_token).build()
+    app = (
+        Application.builder()
+        .token(CONFIG.tg_bot_token)
+        .get_updates_read_timeout(30)
+        .read_timeout(30)
+        .write_timeout(30)
+        .connect_timeout(30)
+        .pool_timeout(30)
+        .build()
+    )
     app.bot_data["trader"] = trader
+    app.add_error_handler(on_error)
 
     app.add_handler(CommandHandler(["start", "help"], cmd_start))
     app.add_handler(CommandHandler("status", cmd_status))

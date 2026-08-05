@@ -1,21 +1,65 @@
 """
-Capa de Telegram del bot de PAIRS. Reutiliza autorización, notify y el filtro de
-eventos del bot direccional. Comandos adaptados al par.
+Capa de Telegram del bot de PAIRS / MULTI-PAR (autocontenida).
+
+Incluye autorización, notify resiliente y manejador de errores propios, sin
+depender del stack direccional (IA/torch). Comandos adaptados al par.
 """
 from __future__ import annotations
 
 import asyncio
+import functools
 
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from config import CONFIG
 from demo_license import demo_status
 from pairs_trader import PairsTrader
-from telegram_bot import NOTIFY_TYPES, _authorized, notify, on_error
 
 CHECK_INTERVAL = 60  # segundos
+
+# Solo avisamos de eventos ACCIONABLES (no ruido cada vela).
+NOTIFY_TYPES = {"opened", "closed", "killswitch", "error", "confirm", "news", "license", "skip"}
+
+
+def _authorized(func):
+    """Solo el chat configurado puede dar órdenes."""
+    @functools.wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.effective_chat is None or update.effective_chat.id != CONFIG.tg_chat_id:
+            return
+        return await func(update, context)
+    return wrapper
+
+
+async def notify(app: Application, text: str) -> None:
+    """Envía reintentando ante errores de red (Bad Gateway/timeout de Telegram)."""
+    for attempt in range(3):
+        try:
+            await app.bot.send_message(chat_id=CONFIG.tg_chat_id, text=text,
+                                       parse_mode=ParseMode.MARKDOWN)
+            return
+        except (NetworkError, TimedOut):
+            if attempt < 2:
+                await asyncio.sleep(3 * (attempt + 1))
+                continue
+            return
+        except Exception:
+            try:
+                await app.bot.send_message(chat_id=CONFIG.tg_chat_id, text=text)
+            except Exception:
+                pass
+            return
+
+
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Traga los errores de red transitorios en silencio (Telegram se recupera solo)."""
+    err = context.error
+    if isinstance(err, (NetworkError, TimedOut)):
+        return
+    print(f"[telegram] error no de red: {type(err).__name__}: {err}")
 
 
 def _trader(context) -> PairsTrader:
@@ -132,8 +176,7 @@ def build_pairs_application(trader: PairsTrader) -> Application:
     app.add_handler(CommandHandler("resume", cmd_resume))
     app.add_handler(CommandHandler("cap", cmd_cap))
     app.add_handler(CommandHandler("dailyrisk", cmd_dailyrisk))
-    # max_instances>1 + misfire_grace_time: si un ciclo tarda o se cuelga, los
-    # siguientes NO se saltan indefinidamente (evita que el z quede congelado).
+    # max_instances>1 evita que un ciclo lento/colgado congele los siguientes.
     app.job_queue.run_repeating(
         trading_job, interval=CHECK_INTERVAL, first=10,
         job_kwargs={"max_instances": 3, "misfire_grace_time": 30},

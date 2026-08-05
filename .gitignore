@@ -1,0 +1,37 @@
+# Secretos — NUNCA subir
+.env
+*/.env
+**/.env
+
+# Cuentas del modo multi-cuenta (solo se sube la plantilla)
+accounts/*.env
+!accounts/EXAMPLE.env
+
+# Datos / modelos / bases de datos
+data/
+*.csv
+*.parquet
+*.pt
+*.pth
+*.db
+
+# Paquetes de demo del cliente
+demo/
+demo.zip
+*.zip
+
+# Reportes generados
+reportes_out/
+*.png
+*.html
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# Logs
+*.log

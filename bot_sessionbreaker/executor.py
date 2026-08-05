@@ -10,8 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from mt5_client import _require_mt5, mt5
-from risk import SymbolSpec, atr_levels, lot_for_risk
-from strategy import Signal
+from risk import SymbolSpec
 
 MAGIC = 20260713  # identifica las operaciones del bot
 
@@ -86,65 +85,6 @@ def _filling_mode(symbol: str):
     if mode & 1:
         return mt5.ORDER_FILLING_FOK
     return mt5.ORDER_FILLING_RETURN
-
-
-def open_from_signal(
-    signal: Signal,
-    symbol: str,
-    balance: float,
-    sl_mult: float = 1.5,
-    tp_mult: float = 1.5,
-    deviation: int = 20,
-) -> OrderResult:
-    """Dimensiona y envía una orden a mercado a partir de una señal."""
-    _require_mt5()
-    if signal.direction == 0:
-        return OrderResult(False, "Señal sin dirección (esperar)")
-
-    spec = get_symbol_spec(symbol)
-    ask, bid = _prices(symbol)
-    entry = ask if signal.direction > 0 else bid
-
-    # Distancia mínima de stop: el mayor entre el stop del broker y ~3x el spread,
-    # para que en M1 (ATR diminuto) los stops no queden pegados al precio.
-    spread = max(0.0, ask - bid)
-    min_stop = max(spec.stops_level * spec.point, spread * 3)
-
-    levels = atr_levels(signal.direction, entry, signal.atr, spec, sl_mult, tp_mult, min_stop)
-    lot = lot_for_risk(balance, signal.risk_pct, levels.sl_distance, spec)
-    if lot <= 0:
-        return OrderResult(False, "Lote calculado 0 (revisa riesgo/ATR/límites del símbolo)")
-
-    order_type = mt5.ORDER_TYPE_BUY if signal.direction > 0 else mt5.ORDER_TYPE_SELL
-
-    # Chequeo de margen: si el lote no cabe, reducirlo hasta lo que permita el margen libre.
-    lot = _fit_lot_to_margin(symbol, order_type, entry, lot, spec)
-    if lot <= 0:
-        return OrderResult(False, "Margen insuficiente para el lote mínimo")
-    request = {
-        "action": mt5.TRADE_ACTION_DEAL,
-        "symbol": symbol,
-        "volume": lot,
-        "type": order_type,
-        "price": entry,
-        "sl": levels.sl,
-        "tp": levels.tp,
-        "deviation": deviation,
-        "magic": MAGIC,
-        "comment": "fxbot_v2",
-        "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": _filling_mode(symbol),
-    }
-    result = mt5.order_send(request)
-    if result is None:
-        return OrderResult(False, f"order_send None: {mt5.last_error()}")
-    if result.retcode != mt5.TRADE_RETCODE_DONE:
-        return OrderResult(False, f"Rechazada retcode={result.retcode} ({result.comment})")
-
-    return OrderResult(
-        True, "Orden ejecutada", ticket=result.order, volume=lot,
-        price=result.price, sl=levels.sl, tp=levels.tp,
-    )
 
 
 def get_positions(symbol: str | None = None) -> list[dict]:
