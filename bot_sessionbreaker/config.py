@@ -84,6 +84,7 @@ class Config:
     sb_tp_mult: float = 2.0
     sb_daily_max_loss: float = 10.0
     sb_buffer_pips: float = 1.0
+    sb_allow_real: bool = False  # opt-in DELIBERADO para operar cuenta REAL automático
 
     def validate(self) -> list[str]:
         """Devuelve una lista de problemas de configuración (vacía si todo OK)."""
@@ -143,6 +144,7 @@ def load_config() -> Config:
         sb_tp_mult=_get_float("SB_TP_MULT", 2.0),
         sb_daily_max_loss=_get_float("SB_DAILY_MAX_LOSS", 10.0),
         sb_buffer_pips=_get_float("SB_BUFFER_PIPS", 1.0),
+        sb_allow_real=_get("SB_ALLOW_REAL", "").lower() in ("1", "true", "yes", "si", "sí"),
     )
 
 

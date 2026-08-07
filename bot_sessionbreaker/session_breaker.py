@@ -229,9 +229,10 @@ class SessionBreakerTrader:
     def _open(self, s: Slot, direction: int, acc: dict) -> list[dict]:
         if not self.state.running:
             return []
-        if not acc["is_demo"]:
+        if not acc["is_demo"] and not CONFIG.sb_allow_real:
             return [{"type": "confirm",
-                     "text": f"⚠️ {s.symbol} s{s.sess_idx} ruptura en cuenta REAL. Confírmala."}]
+                     "text": f"⚠️ {s.symbol} s{s.sess_idx} ruptura en cuenta REAL "
+                             f"(activa SB_ALLOW_REAL=true para operar automático)."}]
         tick = mc.mt5.symbol_info_tick(s.symbol)
         if tick is None:
             return [{"type": "error", "text": f"❌ {s.symbol}: sin tick."}]
