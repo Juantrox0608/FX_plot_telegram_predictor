@@ -93,6 +93,9 @@ class SessionBreakerTrader:
 
     # ---------- datos ----------
     def _bars(self, symbol: str) -> pd.DataFrame:
+        # Asegura que el símbolo esté en Market Watch; si no, copy_rates falla
+        # con "Terminal: Call failed" (típico en terminales recién instalados).
+        mc.mt5.symbol_select(symbol, True)
         rates = mc.mt5.copy_rates_from_pos(symbol, mc.timeframe_const("H1"), 0, BARS_LOOKBACK)
         if rates is None or len(rates) == 0:
             raise RuntimeError(f"Sin datos H1 de {symbol}: {mc.mt5.last_error()}")
