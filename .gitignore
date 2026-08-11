@@ -20,6 +20,9 @@ demo/
 demo.zip
 *.zip
 
+# Legado local (proyecto viejo C++/forexconnect) — archivo, no se sube
+_legado/
+
 # Reportes generados
 reportes_out/
 *.png
