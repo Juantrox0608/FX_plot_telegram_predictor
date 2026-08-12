@@ -85,6 +85,11 @@ class Config:
     sb_daily_max_loss: float = 10.0
     sb_buffer_pips: float = 1.0
 
+    # Multi-par (timeframe, lista de pares y opt-in real)
+    pairs_timeframe: str = "D1"          # D1 (proven) o H4 (más activo)
+    pairs_list: str = "EURUSD-GBPUSD,USDCHF-USDCAD,AUDUSD-NZDUSD"
+    pairs_allow_real: bool = False        # opt-in DELIBERADO para operar cuenta real
+
     def validate(self) -> list[str]:
         """Devuelve una lista de problemas de configuración (vacía si todo OK)."""
         problems: list[str] = []
@@ -143,6 +148,10 @@ def load_config() -> Config:
         sb_tp_mult=_get_float("SB_TP_MULT", 2.0),
         sb_daily_max_loss=_get_float("SB_DAILY_MAX_LOSS", 10.0),
         sb_buffer_pips=_get_float("SB_BUFFER_PIPS", 1.0),
+        pairs_timeframe=(_get("PAIRS_TIMEFRAME", "D1") or "D1").upper(),
+        pairs_list=_get("PAIRS_LIST", "EURUSD-GBPUSD,USDCHF-USDCAD,AUDUSD-NZDUSD")
+        or "EURUSD-GBPUSD,USDCHF-USDCAD,AUDUSD-NZDUSD",
+        pairs_allow_real=_get("PAIRS_ALLOW_REAL", "").lower() in ("1", "true", "yes", "si", "sí"),
     )
 
 

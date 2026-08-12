@@ -19,14 +19,22 @@ from executor import PAIRS_MAGIC, close_pair, open_pair, pair_positions
 from journal import Journal
 from pairs_strategy import Action, PairsConfig, decide, zscore
 
-LOOKBACK_BARS = 80
+LOOKBACK_BARS = max(120, CONFIG.pairs_lookback * 3)  # suficientes velas para el z-score
 
-# Pares a operar: (símbolo A, símbolo B, magic único)
-PAIRS = [
-    ("EURUSD", "GBPUSD", PAIRS_MAGIC + 0),
-    ("AUDUSD", "NZDUSD", PAIRS_MAGIC + 1),
-    ("USDCHF", "USDCAD", PAIRS_MAGIC + 2),
-]
+
+def _parse_pairs(spec: str) -> list[tuple[str, str, int]]:
+    """'EURUSD-GBPUSD,USDCHF-USDCAD' -> [(A,B,magic), ...] con magic único por par."""
+    out = []
+    for i, part in enumerate(p.strip() for p in spec.split(",")):
+        if not part:
+            continue
+        a, b = part.split("-")
+        out.append((a.strip().upper(), b.strip().upper(), PAIRS_MAGIC + i))
+    return out
+
+
+# Pares a operar (desde config). H4 validado: EUR/GBP + CHF/CAD. D1: +AUD/NZD.
+PAIRS = _parse_pairs(CONFIG.pairs_list)
 
 
 @dataclass
@@ -66,9 +74,12 @@ class MultiPairTrader:
 
     # ---------- datos ----------
     def _daily(self, symbol: str) -> pd.DataFrame:
-        rates = mc.mt5.copy_rates_from_pos(symbol, mc.timeframe_const("D1"), 0, LOOKBACK_BARS)
+        # Asegura el símbolo en Market Watch (si no, copy_rates falla en terminales nuevos).
+        mc.mt5.symbol_select(symbol, True)
+        tf = mc.timeframe_const(CONFIG.pairs_timeframe)
+        rates = mc.mt5.copy_rates_from_pos(symbol, tf, 0, LOOKBACK_BARS)
         if rates is None or len(rates) == 0:
-            raise RuntimeError(f"Sin datos D1 de {symbol}: {mc.mt5.last_error()}")
+            raise RuntimeError(f"Sin datos {CONFIG.pairs_timeframe} de {symbol}: {mc.mt5.last_error()}")
         df = pd.DataFrame(rates)
         df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
         return df.iloc[:-1]  # sin la vela en formación
@@ -174,8 +185,10 @@ class MultiPairTrader:
             if corr_now < s.cfg.min_corr:
                 events.append({"type": "skip", "text": f"⏭️ {tag} señal (z={z_now:.2f}) pero corr baja ({corr_now:.2f})."})
                 return events
-            if not acc["is_demo"]:
-                events.append({"type": "confirm", "text": f"⚠️ {tag} señal en cuenta REAL (z={z_now:.2f}). Confírmala."})
+            if not acc["is_demo"] and not CONFIG.pairs_allow_real:
+                events.append({"type": "confirm",
+                               "text": f"⚠️ {tag} señal en cuenta REAL (z={z_now:.2f}) "
+                                       f"(activa PAIRS_ALLOW_REAL=true para operar automático)."})
                 return events
             direction = 1 if action == Action.OPEN_LONG else -1
             lot = self._lot(acc["balance"])
@@ -228,7 +241,7 @@ class MultiPairTrader:
             f"Modo: {'DEMO' if acc['is_demo'] else 'REAL'} | Trading: {'ON ✅' if st.running else 'PAUSA ⏸️'}",
             f"Balance: {acc['balance']:.2f} | Equity: {acc['equity']:.2f} {acc['currency']}",
             f"Capital/lote: {st.cap_per_unit} | Kill-switch: {st.daily_max_loss}%",
-            f"Última vela D1: {bar_txt}{stale}",
+            f"Última vela {CONFIG.pairs_timeframe}: {bar_txt}{stale}",
             "",
         ]
         for s in self.slots:
