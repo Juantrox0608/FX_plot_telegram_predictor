@@ -54,6 +54,7 @@ class Slot:
     last_z: float | None = None
     last_corr: float | None = None
     last_update: pd.Timestamp | None = None  # wallclock del último recálculo
+    signal_dir: int = 0                       # posición virtual (modo señales)
     known_tickets: set[int] = field(default_factory=set)
 
 
@@ -175,11 +176,17 @@ class MultiPairTrader:
         s.last_z, s.last_corr = z_now, corr_now
         s.last_update = pd.Timestamp.utcnow()
 
-        pos = self._pos(s)
+        pos = s.signal_dir if CONFIG.signals_only else self._pos(s)
         action = decide(z_now, pos, s.cfg)
         tag = pair_tag(s.a, s.b)
 
         if action == Action.CLOSE:
+            if CONFIG.signals_only:
+                s.signal_dir = 0
+                events.append({"type": "closed",
+                               "text": f"🔔 *CERRAR {tag}* — el spread volvió (z={z_now:.2f}). "
+                                       f"Cierra ambas patas."})
+                return events
             res = close_pair(s.magic)
             ok = all(r.ok for r in res)
             events.append({"type": "closed" if ok else "error",
@@ -191,6 +198,17 @@ class MultiPairTrader:
                 return events
             if corr_now < s.cfg.min_corr:
                 events.append({"type": "skip", "text": f"⏭️ {tag} señal (z={z_now:.2f}) pero corr baja ({corr_now:.2f})."})
+                return events
+            if CONFIG.signals_only:
+                direction = 1 if action == Action.OPEN_LONG else -1
+                s.signal_dir = direction
+                legs = (f"🟢 Compra {s.a}  +  🔴 Vende {s.b}" if direction > 0
+                        else f"🔴 Vende {s.a}  +  🟢 Compra {s.b}")
+                lado = "LONG spread" if direction > 0 else "SHORT spread"
+                events.append({"type": "opened",
+                               "text": (f"📢 *SEÑAL {tag}* — {lado}\n{legs}\n"
+                                        f"z={z_now:.2f} · corr={corr_now:.2f}\n"
+                                        f"_Señal informativa. Opera bajo tu criterio; sal cuando llegue el aviso de CERRAR._")})
                 return events
             if not acc["is_demo"] and not CONFIG.pairs_allow_real:
                 events.append({"type": "confirm",
@@ -252,7 +270,8 @@ class MultiPairTrader:
             "",
         ]
         for s in self.slots:
-            pos = {0: "sin par", 1: "LONG", -1: "SHORT"}[self._pos(s)]
+            pv = s.signal_dir if CONFIG.signals_only else self._pos(s)
+            pos = {0: "sin par", 1: "LONG", -1: "SHORT"}[pv]
             zc = f"z={s.last_z:.2f} corr={s.last_corr:.2f}" if s.last_z is not None else "—"
             lines.append(f"• {pair_tag(s.a, s.b)}: {pos} | {zc}")
         if st.killed_today:

@@ -89,6 +89,7 @@ class Config:
     pairs_timeframe: str = "D1"          # D1 (proven) o H4 (más activo)
     pairs_list: str = "EURUSD-GBPUSD,USDCHF-USDCAD,AUDUSD-NZDUSD"
     pairs_allow_real: bool = False        # opt-in DELIBERADO para operar cuenta real
+    signals_only: bool = False            # modo SEÑALES: postea la señal, NO opera
 
     def validate(self) -> list[str]:
         """Devuelve una lista de problemas de configuración (vacía si todo OK)."""
@@ -152,6 +153,7 @@ def load_config() -> Config:
         pairs_list=_get("PAIRS_LIST", "EURUSD-GBPUSD,USDCHF-USDCAD,AUDUSD-NZDUSD")
         or "EURUSD-GBPUSD,USDCHF-USDCAD,AUDUSD-NZDUSD",
         pairs_allow_real=_get("PAIRS_ALLOW_REAL", "").lower() in ("1", "true", "yes", "si", "sí"),
+        signals_only=_get("SIGNALS_ONLY", "").lower() in ("1", "true", "yes", "si", "sí"),
     )
 
 

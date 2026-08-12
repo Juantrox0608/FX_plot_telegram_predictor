@@ -36,7 +36,9 @@ def main() -> None:
     pares = ", ".join(pair_tag(a, b) for a, b, _ in PAIRS)
     print(f"Conectado: {acc['login']} @ {acc['server']} | balance {acc['balance']} {acc['currency']}")
     print(f"Timeframe: {CONFIG.pairs_timeframe} | Pares: {pares}")
-    if acc["is_demo"]:
+    if CONFIG.signals_only:
+        print("📢 MODO SEÑALES: postea las señales al chat/canal, NO opera.")
+    elif acc["is_demo"]:
         print("🧪 Cuenta DEMO: operará automáticamente.")
     elif CONFIG.pairs_allow_real:
         print("✅ Cuenta REAL con PAIRS_ALLOW_REAL=true: OPERARÁ automáticamente cuando haya señal.")
