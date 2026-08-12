@@ -20,7 +20,7 @@ async def _on_start(app):
         f"🚀 Bot MULTI-PAR iniciado\n"
         f"Cuenta {acc['login']} @ {acc['server']} "
         f"({'DEMO' if acc['is_demo'] else 'REAL'})\n"
-        f"Pares (D1): {pares}\n"
+        f"Pares ({CONFIG.pairs_timeframe}): {pares}\n"
         f"Balance {acc['balance']:.2f} {acc['currency']}\n"
         f"Escribe /status para ver el estado.",
     )
@@ -33,9 +33,15 @@ def main() -> None:
 
     mc.connect()
     acc = mc.account_info()
+    pares = ", ".join(f"{a[:3]}/{b[:3]}" for a, b, _ in PAIRS)
     print(f"Conectado: {acc['login']} @ {acc['server']} | balance {acc['balance']} {acc['currency']}")
-    if not acc["is_demo"]:
-        print("⚠️  Cuenta NO demo: no abrirá pares automáticamente en real.")
+    print(f"Timeframe: {CONFIG.pairs_timeframe} | Pares: {pares}")
+    if acc["is_demo"]:
+        print("🧪 Cuenta DEMO: operará automáticamente.")
+    elif CONFIG.pairs_allow_real:
+        print("✅ Cuenta REAL con PAIRS_ALLOW_REAL=true: OPERARÁ automáticamente cuando haya señal.")
+    else:
+        print("⚠️  Cuenta REAL sin permiso: solo avisará. Pon PAIRS_ALLOW_REAL=true en el .env para operar.")
 
     trader = MultiPairTrader()
     trader.prime()
