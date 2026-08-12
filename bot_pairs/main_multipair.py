@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import mt5_client as mc
 from config import CONFIG
-from multi_pair_trader import PAIRS, MultiPairTrader
+from multi_pair_trader import PAIRS, MultiPairTrader, pair_tag
 from pairs_telegram import build_pairs_application, notify
 
 
 async def _on_start(app):
     acc = mc.account_info()
-    pares = ", ".join(f"{a[:3]}/{b[:3]}" for a, b, _ in PAIRS)
+    pares = ", ".join(pair_tag(a, b) for a, b, _ in PAIRS)
     await notify(
         app,
         f"🚀 Bot MULTI-PAR iniciado\n"
@@ -33,7 +33,7 @@ def main() -> None:
 
     mc.connect()
     acc = mc.account_info()
-    pares = ", ".join(f"{a[:3]}/{b[:3]}" for a, b, _ in PAIRS)
+    pares = ", ".join(pair_tag(a, b) for a, b, _ in PAIRS)
     print(f"Conectado: {acc['login']} @ {acc['server']} | balance {acc['balance']} {acc['currency']}")
     print(f"Timeframe: {CONFIG.pairs_timeframe} | Pares: {pares}")
     if acc["is_demo"]:

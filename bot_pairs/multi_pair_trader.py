@@ -22,6 +22,13 @@ from pairs_strategy import Action, PairsConfig, decide, zscore
 LOOKBACK_BARS = max(120, CONFIG.pairs_lookback * 3)  # suficientes velas para el z-score
 
 
+def pair_tag(a: str, b: str) -> str:
+    """Etiqueta legible: EURUSD/GBPUSD -> EUR/GBP, USDCHF/USDCAD -> CHF/CAD."""
+    ca = a.replace("USD", "") or a[:3]
+    cb = b.replace("USD", "") or b[:3]
+    return f"{ca}/{cb}"
+
+
 def _parse_pairs(spec: str) -> list[tuple[str, str, int]]:
     """'EURUSD-GBPUSD,USDCHF-USDCAD' -> [(A,B,magic), ...] con magic único por par."""
     out = []
@@ -170,7 +177,7 @@ class MultiPairTrader:
 
         pos = self._pos(s)
         action = decide(z_now, pos, s.cfg)
-        tag = f"{s.a[:3]}/{s.b[:3]}"
+        tag = pair_tag(s.a, s.b)
 
         if action == Action.CLOSE:
             res = close_pair(s.magic)
@@ -247,7 +254,7 @@ class MultiPairTrader:
         for s in self.slots:
             pos = {0: "sin par", 1: "LONG", -1: "SHORT"}[self._pos(s)]
             zc = f"z={s.last_z:.2f} corr={s.last_corr:.2f}" if s.last_z is not None else "—"
-            lines.append(f"• {s.a[:3]}/{s.b[:3]}: {pos} | {zc}")
+            lines.append(f"• {pair_tag(s.a, s.b)}: {pos} | {zc}")
         if st.killed_today:
             lines.append("🛑 Kill-switch ACTIVADO hoy")
         return "\n".join(lines)
