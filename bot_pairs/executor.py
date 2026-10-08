@@ -91,7 +91,7 @@ def get_positions(symbol: str | None = None) -> list[dict]:
     _require_mt5()
     pos = mt5.positions_get(symbol=symbol) if symbol else mt5.positions_get()
     if pos is None:
-        return []
+        raise RuntimeError("No se pudieron leer posiciones; no se considera cuenta plana")
     out = []
     for p in pos:
         out.append({
@@ -113,7 +113,14 @@ def close_position(ticket: int, deviation: int = 20) -> OrderResult:
     if not pos:
         return OrderResult(False, f"No existe la posición {ticket}")
     p = pos[0]
-    ask, bid = _prices(p.symbol)
+    from config import CONFIG
+    if CONFIG.pairs_magic_base <= p.magic < CONFIG.pairs_magic_base + len(CONFIG.pairs_list.split(",")):
+        from pairs_safety import guard_account, fresh_tick
+        guard_account(mt5, orders=True)
+        tick = fresh_tick(mt5, p.symbol)
+        ask, bid = tick.ask, tick.bid
+    else:
+        ask, bid = _prices(p.symbol)
     if p.type == mt5.POSITION_TYPE_BUY:
         close_type, price = mt5.ORDER_TYPE_SELL, bid
     else:
@@ -126,7 +133,7 @@ def close_position(ticket: int, deviation: int = 20) -> OrderResult:
         "position": ticket,
         "price": price,
         "deviation": deviation,
-        "magic": MAGIC,
+        "magic": p.magic,
         "comment": "fxbot_v2_close",
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": _filling_mode(p.symbol),
@@ -135,6 +142,9 @@ def close_position(ticket: int, deviation: int = 20) -> OrderResult:
     if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
         code = None if result is None else result.retcode
         return OrderResult(False, f"No se pudo cerrar {ticket} (retcode={code})", ticket=ticket)
+    remaining = mt5.positions_get(ticket=ticket)
+    if remaining is None or remaining:
+        return OrderResult(False, f"Cierre pendiente {ticket}", ticket=ticket)
     return OrderResult(True, f"Posición {ticket} cerrada", ticket=ticket)
 
 
@@ -152,44 +162,66 @@ PAIRS_MAGIC = 20260714
 
 def _market_order(symbol: str, side: int, lot: float, magic: int,
                   comment: str, deviation: int = 20) -> OrderResult:
-    """Orden a mercado simple (sin SL/TP). side: +1 compra, -1 venta."""
-    _require_mt5()
-    ask, bid = _prices(symbol)
-    price = ask if side > 0 else bid
-    order_type = mt5.ORDER_TYPE_BUY if side > 0 else mt5.ORDER_TYPE_SELL
-    request = {
-        "action": mt5.TRADE_ACTION_DEAL, "symbol": symbol, "volume": lot,
-        "type": order_type, "price": price, "deviation": deviation,
-        "magic": magic, "comment": comment,
-        "type_time": mt5.ORDER_TIME_GTC, "type_filling": _filling_mode(symbol),
-    }
+    from pairs_safety import guard_account, fresh_tick
+    guard_account(mt5, orders=True)
+    tick = fresh_tick(mt5, symbol)
+    price = tick.ask if side > 0 else tick.bid
+    before = {p["ticket"] for p in pair_positions(magic)}
+    request = {"action": mt5.TRADE_ACTION_DEAL, "symbol": symbol, "volume": lot,
+               "type": mt5.ORDER_TYPE_BUY if side > 0 else mt5.ORDER_TYPE_SELL,
+               "price": price, "deviation": deviation, "magic": magic, "comment": comment,
+               "type_time": mt5.ORDER_TIME_GTC, "type_filling": _filling_mode(symbol)}
     result = mt5.order_send(request)
-    if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
-        code = None if result is None else result.retcode
-        cmt = "" if result is None else result.comment
-        return OrderResult(False, f"Rechazada {symbol} retcode={code} ({cmt})")
-    return OrderResult(True, "OK", ticket=result.order, volume=lot, price=result.price)
+    new = [p for p in pair_positions(magic) if p["ticket"] not in before and p["symbol"] == symbol]
+    # Un ticket de orden no es necesariamente el ticket de posición.
+    leg = new[0] if len(new) == 1 else None
+    ok = (result is not None and result.retcode == mt5.TRADE_RETCODE_DONE and leg is not None
+          and abs(leg["volume"] - lot) < 1e-8)
+    return OrderResult(ok, "OK" if ok else "Ejecución incompleta/rechazada; comprobar exposición",
+                       ticket=leg["ticket"] if leg else 0, volume=leg["volume"] if leg else 0.,
+                       price=leg["price_open"] if leg else 0.)
 
 
 def open_pair(direction: int, symbol_a: str, symbol_b: str, lot: float,
-              magic: int = PAIRS_MAGIC) -> dict:
-    """
-    Abre las 2 patas. direction=+1 -> LONG A / SHORT B ; -1 -> SHORT A / LONG B.
-    Cada par usa su propio `magic` para no mezclarse con otros pares.
-    Si la 2ª pata falla, cierra la 1ª para no quedar con una pata desnuda.
-    """
+              magic: int = PAIRS_MAGIC, *, lot_b: float | None = None) -> dict:
+    from config import CONFIG
+    from pairs_safety import guard_account, fresh_tick, floor_step
     _require_mt5()
-    side_a = 1 if direction > 0 else -1
-    side_b = -side_a
-    ra = _market_order(symbol_a, side_a, lot, magic, "pairs_a")
-    if not ra.ok:
-        return {"ok": False, "message": f"Pata A falló: {ra.message}", "leg_a": ra, "leg_b": None}
-    rb = _market_order(symbol_b, side_b, lot, magic, "pairs_b")
-    if not rb.ok:
-        close_position(ra.ticket)  # rollback pata A
-        return {"ok": False, "message": f"Pata B falló (revertí A): {rb.message}",
-                "leg_a": ra, "leg_b": rb}
-    return {"ok": True, "message": "Par abierto", "leg_a": ra, "leg_b": rb}
+    acc = guard_account(mt5, orders=True)
+    if not CONFIG.pairs_magic_base <= magic < CONFIG.pairs_magic_base + len(CONFIG.pairs_list.split(",")):
+        raise RuntimeError("Magic fuera de la instancia")
+    if direction not in (-1, 1) or symbol_a == symbol_b:
+        raise ValueError("Par/dirección inválidos")
+    if pair_positions(magic): raise RuntimeError("Ya hay posiciones del par; no duplicar")
+    lots=(lot,lot if lot_b is None else lot_b)
+    margins=[]
+    for sym,vol,side in zip((symbol_a,symbol_b),lots,(direction,-direction)):
+        si=mt5.symbol_info(sym); tick=fresh_tick(mt5,sym)
+        if si is None or not si.volume_min <= vol <= si.volume_max or abs(floor_step(vol,si.volume_step)-vol)>1e-8:
+            raise RuntimeError("Lote fuera de límites/paso")
+        margin=mt5.order_calc_margin(mt5.ORDER_TYPE_BUY if side>0 else mt5.ORDER_TYPE_SELL,
+                                     sym,vol,tick.ask if side>0 else tick.bid)
+        if margin is None or not __import__("math").isfinite(margin) or margin<=0:
+            raise RuntimeError("Margen no verificable")
+        margins.append(margin)
+    if sum(margins)>acc.margin_free*.9: raise RuntimeError("Margen insuficiente para ambas patas")
+    ra=rb=None
+    try:
+        ra=_market_order(symbol_a,direction,lots[0],magic,"pairs_a")
+        if ra.ok: rb=_market_order(symbol_b,-direction,lots[1],magic,"pairs_b")
+        if ra.ok and rb is not None and rb.ok:
+            return {"ok":True,"message":"Par abierto","leg_a":ra,"leg_b":rb,"needs_close":False}
+    except Exception:
+        # La llamada puede haber ejecutado aunque su respuesta se pierda.
+        pass
+    try:
+        rollback=close_pair(magic)
+        remaining=bool(pair_positions(magic))
+    except Exception:
+        rollback=[]; remaining=True
+    return {"ok":False,"message":"Apertura falló; cierre pendiente, revisar exposición" if remaining
+            else "Apertura falló; reversión verificada, sin posiciones",
+            "leg_a":ra,"leg_b":rb,"needs_close":remaining,"rollback":rollback}
 
 
 def pair_positions(magic: int = PAIRS_MAGIC) -> list[dict]:

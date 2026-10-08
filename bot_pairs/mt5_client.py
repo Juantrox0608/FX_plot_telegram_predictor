@@ -60,6 +60,8 @@ def connect() -> None:
     kwargs = {}
     if CONFIG.mt5_path:
         kwargs["path"] = CONFIG.mt5_path
+    if CONFIG.instance_id:
+        kwargs["portable"] = True  # datos del terminal propios de cada instalación
     if not mt5.initialize(
         login=CONFIG.mt5_login,
         password=CONFIG.mt5_password,

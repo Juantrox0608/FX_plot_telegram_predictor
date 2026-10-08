@@ -3,14 +3,14 @@ Estrategia de PAIRS (arbitraje estadístico): opera la reversión del spread ent
 dos pares correlacionados (por defecto EURUSD vs GBPUSD).
 
 Señal = z-score del spread:
-  z < -entry  -> spread bajo  -> LONG spread  (long A / short B)
-  z > +entry  -> spread alto  -> SHORT spread (short A / long B)
+  z <= -entry  -> spread bajo  -> LONG spread  (long A / short B)
+  z >= +entry  -> spread alto  -> SHORT spread (short A / long B)
   |z| <= exit -> cerrar
 
 Este módulo NO ejecuta órdenes; solo calcula la señal. Sirve igual para el
 backtest (recorriendo el histórico) y para el bot en vivo (última vela).
 El hedge ratio (beta) es opcional: en la versión BASE se asume 1:1 (lo que ya
-validamos +20% robusto); beta rodante es una mejora a probar después.
+señal definida en el laboratorio); beta rodante es una mejora a probar después.
 """
 from __future__ import annotations
 
@@ -66,16 +66,16 @@ def decide(z_now: float, position: int, cfg: PairsConfig) -> Action:
     if not np.isfinite(z_now):
         return Action.HOLD
     if position == 0:
-        if z_now < -cfg.entry_z:
+        if z_now <= -cfg.entry_z:
             return Action.OPEN_LONG
-        if z_now > cfg.entry_z:
+        if z_now >= cfg.entry_z:
             return Action.OPEN_SHORT
         return Action.HOLD
     # con posición abierta: stop de seguridad si el spread se dispara en contra
     if cfg.stop_z > 0:
-        if position == 1 and z_now < -cfg.stop_z:
+        if position == 1 and z_now <= -cfg.stop_z:
             return Action.CLOSE
-        if position == -1 and z_now > cfg.stop_z:
+        if position == -1 and z_now >= cfg.stop_z:
             return Action.CLOSE
     # cerrar al volver al centro
     if position == 1 and z_now >= -cfg.exit_z:

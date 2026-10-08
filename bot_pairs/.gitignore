@@ -1,0 +1,6 @@
+
+.pytest_cache/
+tests/__runtime_unused/
+.env.*
+!.env.example
+!.env.cliente.example

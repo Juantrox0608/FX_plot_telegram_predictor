@@ -5,6 +5,7 @@ un objeto CONFIG con valores tipados y validados.
 from __future__ import annotations
 
 import os
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,7 +18,7 @@ _ENV_FILE = os.getenv("ENV_FILE", ".env")
 load_dotenv(BASE_DIR / _ENV_FILE)
 
 # Carpetas de trabajo (se crean si no existen)
-DATA_DIR = BASE_DIR / "data"
+DATA_DIR = Path(os.getenv("PAIRS_DATA_DIR", str(BASE_DIR / "data"))).expanduser().resolve()
 CHECKPOINT_DIR = BASE_DIR / "model" / "checkpoints"
 REPORT_DIR = BASE_DIR / "reportes_out"
 for _d in (DATA_DIR, CHECKPOINT_DIR, REPORT_DIR):
@@ -90,6 +91,14 @@ class Config:
     pairs_list: str = "EURUSD-GBPUSD,USDCHF-USDCAD,AUDUSD-NZDUSD"
     pairs_allow_real: bool = False        # opt-in DELIBERADO para operar cuenta real
     signals_only: bool = False            # modo SEÑALES: postea la señal, NO opera
+    pairs_exit_z: float = 0.3             # salida anticipada: cierra en |z|<=exit_z (mejor net/DD)
+    pairs_size_by_z: bool = False         # apuesta más cuando |z| es más extremo (más exposición)
+
+    symbol_suffix: str = ""
+    pairs_risk_profile: str = "conservador"
+    pairs_magic_base: int = 20260714
+    pairs_max_tick_age: int = 120
+    instance_id: str = ""
 
     def validate(self) -> list[str]:
         """Devuelve una lista de problemas de configuración (vacía si todo OK)."""
@@ -114,6 +123,21 @@ class Config:
             problems.append(f"DEMO_DURATION_DAYS debe ser mayor o igual a 0: {self.demo_duration_days}")
         if self.demo_duration_months == 0 and self.demo_duration_days == 0:
             problems.append("Configura DEMO_DURATION_MONTHS o DEMO_DURATION_DAYS")
+        values=(self.pairs_entry_z, self.pairs_stop_z, self.pairs_exit_z, self.pairs_min_corr)
+        if (not all(math.isfinite(x) for x in values) or self.pairs_lookback < 2
+                or not 0 <= self.pairs_exit_z < self.pairs_entry_z < self.pairs_stop_z
+                or not -1 <= self.pairs_min_corr <= 1):
+            problems.append("Parámetros de estrategia inválidos")
+        if not math.isfinite(self.daily_max_loss_percent) or not 0 < self.daily_max_loss_percent <= 50:
+            problems.append("Límite diario inválido")
+        if self.pairs_risk_profile not in ("conservador", "moderado", "agresivo"):
+            problems.append("PAIRS_RISK_PROFILE inválido")
+        if not self.mt5_path or not self.instance_id or not os.getenv("PAIRS_DATA_DIR"):
+            problems.append("Multi-cuenta requiere MT5_PATH, INSTANCE_ID y PAIRS_DATA_DIR propios")
+        if self.pairs_magic_base < 1 or self.pairs_magic_base > 2147483000:
+            problems.append("PAIRS_MAGIC_BASE fuera de rango")
+        if not 1 <= self.pairs_max_tick_age <= 300:
+            problems.append("PAIRS_MAX_TICK_AGE fuera de rango 1-300 segundos")
         return problems
 
 
@@ -154,6 +178,13 @@ def load_config() -> Config:
         or "EURUSD-GBPUSD,USDCHF-USDCAD,AUDUSD-NZDUSD",
         pairs_allow_real=_get("PAIRS_ALLOW_REAL", "").lower() in ("1", "true", "yes", "si", "sí"),
         signals_only=_get("SIGNALS_ONLY", "").lower() in ("1", "true", "yes", "si", "sí"),
+        pairs_exit_z=_get_float("PAIRS_EXIT_Z", 0.3),
+        pairs_size_by_z=_get("PAIRS_SIZE_BY_Z", "").lower() in ("1", "true", "yes", "si", "sí"),
+        symbol_suffix=_get("SYMBOL_SUFFIX"),
+        pairs_risk_profile=_get("PAIRS_RISK_PROFILE", "conservador"),
+        pairs_magic_base=_get_int("PAIRS_MAGIC_BASE", 20260714),
+        pairs_max_tick_age=_get_int("PAIRS_MAX_TICK_AGE", 120),
+        instance_id=_get("INSTANCE_ID"),
     )
 
 

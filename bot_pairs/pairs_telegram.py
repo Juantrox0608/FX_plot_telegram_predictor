@@ -59,7 +59,7 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     err = context.error
     if isinstance(err, (NetworkError, TimedOut)):
         return
-    print(f"[telegram] error no de red: {type(err).__name__}: {err}")
+    print(f"[telegram] error no de red: {type(err).__name__}")
 
 
 def _trader(context) -> PairsTrader:
@@ -104,7 +104,7 @@ async def cmd_closeall(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @_authorized
 async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _trader(context).state.running = False
+    await asyncio.to_thread(_trader(context).pause)
     await update.message.reply_text("⏸️ Trading PAUSADO (no abrirá nuevos pares).")
 
 
@@ -114,7 +114,11 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if demo.is_expired:
         await update.message.reply_text(f"No se puede reanudar. {demo.summary()}")
         return
-    _trader(context).state.running = True
+    try:
+        await asyncio.to_thread(_trader(context).resume)
+    except RuntimeError:
+        await update.message.reply_text("No se puede reanudar: freno diario o cuenta/terminal no verificados.")
+        return
     await update.message.reply_text("▶️ Trading REANUDADO.")
 
 
@@ -126,8 +130,7 @@ async def cmd_cap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except (IndexError, ValueError, AssertionError):
         await update.message.reply_text("Uso: /cap <capital por 0.01 lote> (mayor = más conservador)")
         return
-    _trader(context).state.cap_per_unit = val
-    await update.message.reply_text(f"✅ Capital por lote fijado en {val}.")
+    await update.message.reply_text("El multi-par usa PAIRS_RISK_PROFILE; /cap no modifica sus lotes. Configúralo fuera de Telegram y reinicia sin posiciones abiertas.")
 
 
 @_authorized
@@ -138,8 +141,7 @@ async def cmd_dailyrisk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except (IndexError, ValueError, AssertionError):
         await update.message.reply_text("Uso: /dailyrisk <0.5-50>")
         return
-    _trader(context).state.daily_max_loss = val
-    await update.message.reply_text(f"✅ Kill-switch de pérdida diaria en {val}%.")
+    await update.message.reply_text("El límite diario se fija en DAILY_MAX_LOSS_PERCENT y requiere revisión de configuración; /dailyrisk no lo cambia durante la sesión.")
 
 
 async def trading_job(context: ContextTypes.DEFAULT_TYPE):
@@ -147,7 +149,7 @@ async def trading_job(context: ContextTypes.DEFAULT_TYPE):
     try:
         events = await asyncio.to_thread(trader.check)
     except Exception as e:
-        await notify(context.application, f"❌ Error en el ciclo: {e}")
+        await notify(context.application, f"Error en el ciclo: {type(e).__name__}; sin nuevas aperturas, revisar terminal.")
         return
     for ev in events:
         if ev["type"] in NOTIFY_TYPES:
@@ -179,6 +181,6 @@ def build_pairs_application(trader: PairsTrader) -> Application:
     # max_instances>1 evita que un ciclo lento/colgado congele los siguientes.
     app.job_queue.run_repeating(
         trading_job, interval=CHECK_INTERVAL, first=10,
-        job_kwargs={"max_instances": 3, "misfire_grace_time": 30},
+        job_kwargs={"max_instances": 1, "misfire_grace_time": 30},
     )
     return app
