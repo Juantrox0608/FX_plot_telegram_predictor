@@ -92,6 +92,8 @@ class MultiPairTrader:
         self.clock = get_clock(mc.mt5)
         self.calendar = ForexCalendar.from_file(CONFIG.broker_sessions_file)
         self.notices = NoticeGate()
+        self.cycle_notices = NoticeGate(grace_seconds=600)
+        self.data_notices = NoticeGate(grace_seconds=600)
         self._license_blocks = False
         self.license_reader = lambda: demo_status(state_path=Path(CONFIG.demo_license_file) if CONFIG.demo_license_file else DATA_DIR / "demo_activation.json")
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -209,10 +211,10 @@ class MultiPairTrader:
         with self._lock:
             try:
                 events=self._check_locked()
-                if self.notices.update("cycle",None): events.insert(0,{"type":"news","text":"Conexión y reloj recuperados."})
+                if self.cycle_notices.update("cycle",None): events.insert(0,{"type":"news","text":"Conexión y reloj recuperados."})
                 return events
             except Exception as e:
-                return [{"type":"error","text":f"Ciclo bloqueado ({type(e).__name__}): comprobar conexión/reloj."}] if self.notices.update("cycle",type(e).__name__) else []
+                return [{"type":"error","text":f"Ciclo bloqueado ({type(e).__name__}): comprobar conexión/reloj."}] if self.cycle_notices.update("cycle",type(e).__name__) else []
 
     def _check_locked(self) -> list[dict]:
         guard_account(mc.mt5)
@@ -246,11 +248,11 @@ class MultiPairTrader:
                 if any(e["type"]=="error" for e in slot_events):
                     if self.notices.update(s.magic,"pending_close"): events+=slot_events
                 else:
-                    if self.notices.update(s.magic,None): events.append({"type":"news","text":f"{pair_tag(s.a,s.b)}: incidencia resuelta."})
+                    if self.data_notices.update(s.magic,None) | self.notices.update(s.magic,None): events.append({"type":"news","text":f"{pair_tag(s.a,s.b)}: incidencia resuelta."})
                     events+=slot_events
             except MarketClosed: pass
             except Exception as e:
-                if self.notices.update(s.magic,type(e).__name__):
+                if self.data_notices.update(s.magic,type(e).__name__):
                     events.append({"type":"error","text":f"{pair_tag(s.a,s.b)}: {type(e).__name__}; ciclo bloqueado, revisar terminal."})
         return events
 

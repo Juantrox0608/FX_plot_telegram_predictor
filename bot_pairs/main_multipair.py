@@ -9,6 +9,7 @@ from __future__ import annotations
 import mt5_client as mc
 from config import CONFIG, DATA_DIR
 from pairs_safety import InstanceLock, guard_account
+from broker_time import configure_notice_logging
 from multi_pair_trader import PAIRS, MultiPairTrader, pair_tag
 from pairs_telegram import build_pairs_application, notify
 
@@ -33,6 +34,7 @@ def main() -> None:
         raise SystemExit("Config incompleta:\n- " + "\n- ".join(problems))
 
     with InstanceLock(DATA_DIR, CONFIG.mt5_path):
+        configure_notice_logging(DATA_DIR)
         try:
             mc.connect()
             guard_account(mc.mt5)

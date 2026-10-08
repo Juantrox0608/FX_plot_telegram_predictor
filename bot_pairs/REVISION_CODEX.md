@@ -57,3 +57,8 @@ Skills: python-patterns, tdd-workflow, python-testing, security-review, telegram
 Pruebas primero: 16 fallos antes de implementar; suite final **78 aprobadas** (4,36 s), incluidos preflight positivo de seis pares y rechazo de cuenta/reloj. MT5 y dotenv simulados; sockets bloqueados. No backtests ni cambios de criterios. `.env.example` y untracked ajenos preservados.
 
 **Diferencia respecto del backtest:** el freno diario del bot cierra las patas abiertas al alcanzar 5%; el backtest citado bloqueaba entradas y dejaba seguir sus salidas normales. No se cambió esa conducta ni se equiparan resultados. Juan debe decidir con el cliente después de revisión. Ambas patas siguen redondeadas hacia abajo, diferencia ya documentada.
+
+
+## A — menores posteriores a revisión de Claude (2026-10-08)
+
+Avisos de conexión/datos con gracia600s, reloj monotónico, log local inmediato incluso si se recupera antes del aviso, repetición horaria y recuperación solo si hubo aviso. Errores de ejecución/cierre conservan prioridad inmediata. Ejemplo de festivos pendientes separado de sesiones confirmadas; cargarlo sin confirmar no cambia sesiones. Sin estrategia, lotes, umbrales, freno ni órdenes reales modificados. Cinco fallos y un fallo de log antes de implementación; suite final84 pruebas aprobadas. MT5/dotenv simulados y sockets bloqueados. No .env, VPS ni Telegram real. Cambios ajenos preservados. Claude revisa.

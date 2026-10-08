@@ -1,0 +1,18 @@
+{
+  "nota": "Ejemplo inactivo. Confirmar cada fecha y símbolo en el terminal antes de agregar sesiones_confirmadas. No se inventan horarios.",
+  "pendientes": [
+    {
+      "fecha": "2026-12-25",
+      "simbolos": "*",
+      "estado": "por verificar en el terminal",
+      "sesiones": null
+    },
+    {
+      "fecha": "2027-01-01",
+      "simbolos": "*",
+      "estado": "por verificar en el terminal",
+      "sesiones": null
+    }
+  ],
+  "sesiones_confirmadas": {}
+}

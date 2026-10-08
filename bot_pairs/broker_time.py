@@ -1,6 +1,7 @@
 """Reloj observado y calendario Forex en etiquetas de hora del servidor."""
 from datetime import datetime, timezone, timedelta
 import json
+import logging
 import math
 import time
 from pathlib import Path
@@ -70,6 +71,10 @@ class ForexCalendar:
         if p.name.startswith(".env") or p.suffix.lower() in (".key",".pem"):
             raise ValueError("Calendario debe ser JSON público sin secretos")
         data=json.loads(p.read_text(encoding="utf-8"))
+        if "sesiones_confirmadas" in data:
+            if set(data)-{"nota","pendientes","sesiones_confirmadas"}: raise ValueError("Calendario con campos desconocidos")
+            data=data["sesiones_confirmadas"]
+            if not isinstance(data,dict): raise ValueError("Sesiones confirmadas deben ser mapa")
         for sym,dates in data.items():
             for date,intervals in dates.items():
                 datetime.fromisoformat(date)
@@ -112,13 +117,36 @@ class ForexCalendar:
         return (server_now-last).total_seconds()/3600
 
 class NoticeGate:
-    def __init__(self): self.states={}
+    def __init__(self,grace_seconds=0):
+        self.states={};self.grace_seconds=grace_seconds
     def update(self,key,state,now=None):
-        now=time.time() if now is None else now
-        old,last=self.states.get(key,(None,0.))
-        changed=old!=state
-        remind=state is not None and now-last>=3600
-        if changed or remind:
-            self.states[key]=(state,now)
+        now=time.monotonic() if now is None else now
+        old=self.states.get(key)
+        log=logging.getLogger(__name__)
+        if state is None:
+            if old is None: return False
+            del self.states[key]
+            log.info("Bloqueo %s recuperado tras %.0f segundos",key,now-old["start"])
+            return old["notified"]
+        changed=old is None or old["state"]!=state
+        if old is None: old={"state":state,"start":now,"last":None,"notified":False}
+        if changed:
+            log.info("Bloqueo %s: %s",key,state)
+            old["state"]=state
+        self.states[key]=old
+        if now-old["start"]<self.grace_seconds: return False
+        if changed or not old["notified"] or now-old["last"]>=3600:
+            old["last"]=now;old["notified"]=True
             return True
         return False
+
+
+def configure_notice_logging(directory):
+    from logging.handlers import RotatingFileHandler
+    path=Path(directory)/"avisos.log";path.parent.mkdir(parents=True,exist_ok=True)
+    log=logging.getLogger(__name__)
+    if not any(getattr(h,"baseFilename",None)==str(path.resolve()) for h in log.handlers):
+        handler=RotatingFileHandler(path,maxBytes=2_000_000,backupCount=3,encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        log.addHandler(handler)
+    log.setLevel(logging.INFO);log.propagate=False
