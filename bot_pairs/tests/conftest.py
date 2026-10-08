@@ -21,6 +21,12 @@ os.environ["MT5_PATH"] = "C:/Simulated/terminal64.exe"
 os.environ["PAIRS_MAGIC_BASE"] = "91000"
 os.environ["SYMBOL_SUFFIX"] = ".m"
 os.environ["PAIRS_RISK_PROFILE"] = "conservador"
+os.environ.update({"MT5_PASSWORD":"simulation-only","TG_BOT_TOKEN":"simulation-only","TG_CHAT_ID":"1",
+                   "PAIRS_ALLOW_REAL":"false","SIGNALS_ONLY":"false","MODE":"demo",
+                   "PAIRS_TIMEFRAME":"D1","PAIRS_LIST":"EURUSD-GBPUSD,USDCHF-USDCAD,AUDUSD-NZDUSD",
+                   "PAIRS_LOOKBACK":"20","PAIRS_ENTRY_Z":"2","PAIRS_STOP_Z":"3.5",
+                   "PAIRS_MIN_CORR":"0.6","PAIRS_EXIT_Z":"0.3","PAIRS_SIZE_BY_Z":"false",
+                   "DAILY_MAX_LOSS_PERCENT":"5","PAIRS_MAX_TICK_AGE":"120"})
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", lambda *a, **k: (_ for _ in ()).throw(AssertionError("Red prohibida")))
