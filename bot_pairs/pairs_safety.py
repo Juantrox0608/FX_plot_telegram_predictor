@@ -56,14 +56,29 @@ def guard_account(mt5, *, orders=False):
             raise RuntimeError("Trading deshabilitado en el terminal/cuenta")
     return acc
 
-def fresh_tick(mt5,symbol):
-    tick=mt5.symbol_info_tick(symbol)
-    if tick is None or not all(math.isfinite(v) and v>0 for v in (tick.ask,tick.bid)) or tick.ask<tick.bid:
-        raise RuntimeError("Cotización inválida")
-    age=time.time()-tick.time
-    if age < -5 or age > CONFIG.pairs_max_tick_age:
-        raise RuntimeError("Cotización congelada/futura; sin órdenes")
-    return tick
+_CLOCKS = {}
+
+def get_clock(mt5):
+    from broker_time import BrokerClock
+    key=(id(mt5),CONFIG.broker_utc_offset,CONFIG.pairs_max_tick_age)
+    if key not in _CLOCKS:
+        _CLOCKS[key]=BrokerClock(CONFIG.broker_utc_offset,CONFIG.pairs_max_tick_age)
+    return _CLOCKS[key]
+
+def fresh_tick(mt5,symbol,clock=None):
+    terminal=mt5.terminal_info()
+    if terminal is None or not terminal.connected: raise RuntimeError("MT5 desconectado")
+    if not mt5.symbol_select(symbol,True): raise RuntimeError("Símbolo no disponible")
+    clock=clock or get_clock(mt5)
+    if clock.offset_seconds is None: clock.refresh(mt5,[symbol])
+    deadline=time.monotonic()+2.
+    while True:
+        tick=mt5.symbol_info_tick(symbol)
+        valid=(tick is not None and all(math.isfinite(v) and v>0 for v in (tick.ask,tick.bid)) and tick.ask>=tick.bid)
+        if valid and -5<=clock.age(tick)<=CONFIG.pairs_max_tick_age: return tick
+        if time.monotonic()>=deadline: raise RuntimeError("Cotización congelada/futura; sin órdenes")
+        time.sleep(.05)
+
 
 class RuntimeStore:
     """Estado duradero ligado a cuenta, servidor y configuración de pares."""

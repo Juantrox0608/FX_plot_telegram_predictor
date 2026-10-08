@@ -9,9 +9,13 @@ Kill-switch de pérdida diaria a nivel de CUENTA (global).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 import threading
 import json
-from pairs_safety import guard_account, fresh_tick, profile_lots, RuntimeStore
+from datetime import datetime, timezone
+from broker_time import ForexCalendar, NoticeGate, MarketClosed
+from demo_license import demo_status
+from pairs_safety import guard_account, fresh_tick, profile_lots, RuntimeStore, get_clock
 
 import numpy as np
 import pandas as pd
@@ -85,6 +89,11 @@ class MultiPairTrader:
     def __init__(self):
         self.state = GlobalState()
         self._lock = threading.RLock()
+        self.clock = get_clock(mc.mt5)
+        self.calendar = ForexCalendar.from_file(CONFIG.broker_sessions_file)
+        self.notices = NoticeGate()
+        self._license_blocks = False
+        self.license_reader = lambda: demo_status(state_path=Path(CONFIG.demo_license_file) if CONFIG.demo_license_file else DATA_DIR / "demo_activation.json")
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         scope = json.dumps([CONFIG.instance_id, CONFIG.mt5_login, CONFIG.mt5_server,
                             CONFIG.mt5_path, CONFIG.pairs_magic_base, PAIRS,
@@ -106,9 +115,11 @@ class MultiPairTrader:
     def _daily(self, symbol: str) -> pd.DataFrame:
         # Asegura el símbolo en Market Watch (si no, copy_rates falla en terminales nuevos).
         guard_account(mc.mt5)
-        fresh_tick(mc.mt5, symbol)
         if not mc.mt5.symbol_select(symbol, True):
             raise RuntimeError("Símbolo no disponible")
+        if self.clock.offset_seconds is None: self.clock.refresh(mc.mt5, sorted({x for a,b,_ in PAIRS for x in (a,b)}))
+        if not self.calendar.is_open(symbol, self.server_now()): raise MarketClosed("Sesión cerrada")
+        fresh_tick(mc.mt5, symbol, self.clock)
         tf = mc.timeframe_const(CONFIG.pairs_timeframe)
         rates = mc.mt5.copy_rates_from_pos(symbol, tf, 1, LOOKBACK_BARS)
         if rates is None or len(rates) == 0:
@@ -119,9 +130,10 @@ class MultiPairTrader:
             raise RuntimeError("Velas duplicadas/desordenadas")
         if not np.isfinite(df["close"]).all() or (df["close"] <= 0).any():
             raise RuntimeError("Precios inválidos")
-        tf_hours={"D1":24,"H4":4,"H1":1,"M30":.5,"M15":.25,"M5":1/12,"M1":1/60}[CONFIG.pairs_timeframe]
-        if pd.Timestamp.now(tz="UTC") - df["time"].iloc[-1] > pd.Timedelta(hours=tf_hours*2+4):
-            raise RuntimeError("Historial congelado; sin señales")
+        forming=mc.mt5.copy_rates_from_pos(symbol, tf, 0, 1)
+        if forming is None or not len(forming): raise RuntimeError("Sin vela en formación")
+        forming_time=pd.to_datetime(forming[0]["time"], unit="s", utc=True)
+        self.calendar.validate_bars(symbol,CONFIG.pairs_timeframe,df["time"].iloc[-1],forming_time,self.server_now())
         return df  # start_pos=1: excluye explícitamente la vela en formación
 
     def _pair_frame(self, slot: Slot) -> pd.DataFrame:
@@ -146,7 +158,8 @@ class MultiPairTrader:
         for s in self.slots:
             try:
                 j = self._pair_frame(s)
-                s.last_bar_time = j["time"].iloc[-1]
+                saved=self.runtime.get(f"processed:{s.magic}")
+                s.last_bar_time=pd.Timestamp(saved) if saved else None
                 # Calcula z/corr YA, para que /status muestre valores frescos al arrancar
                 s.last_z, s.last_corr = self._zcorr(j, s.cfg)
                 s.last_update = pd.Timestamp.now(tz="UTC")
@@ -174,28 +187,71 @@ class MultiPairTrader:
                             (ticks[0].ask+ticks[0].bid)/2,(ticks[1].ask+ticks[1].bid)/2,multiplier)
 
     # ---------- ciclo ----------
+    def server_now(self):
+        return self.clock.server_now()
+
+    def _license_events(self):
+        try:
+            license=self.license_reader()
+            self._license_blocks=license.is_expired
+            category="expired" if license.is_expired else "warning" if license.days_left<=15 else None
+            if category:
+                key=f"license:{category}:{license.expires_at.isoformat()}"
+                if not self.runtime.get(key,False):
+                    self.runtime.put(key,True)
+                    return [{"type":"license","text":"Licencia vencida: entradas pausadas; se siguen gestionando salidas." if category=="expired" else f"Licencia: quedan {license.days_left} días. Preparar renovación."}]
+            return []
+        except Exception:
+            self._license_blocks=True
+            return [{"type":"license","text":"Licencia no verificable: entradas pausadas; salidas continúan."}] if self.notices.update("license","invalid") else []
+
     def check(self) -> list[dict]:
         with self._lock:
-            return self._check_locked()
+            try:
+                events=self._check_locked()
+                if self.notices.update("cycle",None): events.insert(0,{"type":"news","text":"Conexión y reloj recuperados."})
+                return events
+            except Exception as e:
+                return [{"type":"error","text":f"Ciclo bloqueado ({type(e).__name__}): comprobar conexión/reloj."}] if self.notices.update("cycle",type(e).__name__) else []
 
     def _check_locked(self) -> list[dict]:
         guard_account(mc.mt5)
+        # Con offset conocido, mercado cerrado no intenta calibrar ticks inmóviles.
+        symbols=sorted({x for s in self.slots for x in (s.a,s.b)})
+        if self.clock.offset_seconds is not None:
+            if not any(self.calendar.is_open(x,self.server_now()) for x in symbols): return []
+        else:
+            # Antes de primera calibración, sábado/domingo temprano UTC están cerrados
+            # en ambos offsets JustMarkets +2/+3; no inventar frescura de ticks.
+            utc=datetime.now(timezone.utc).replace(tzinfo=None)
+            if all(not any(self.calendar.is_open(x,utc+pd.Timedelta(hours=h)) for x in symbols) for h in (2,3)): return []
+        self.clock.refresh(mc.mt5,symbols)
         acc=self.account()
         today=pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
         daily=self.runtime.daily(today,acc["equity"],self.state.daily_max_loss)
         newly_killed=daily["killed"] and not self.state.killed_today
         self.state.day_key=today; self.state.day_start_equity=daily["start"]
         self.state.killed_today=daily["killed"]
-        events=[]
+        events=self._license_events()
         if daily["killed"]:
             self.pause()
             if not CONFIG.signals_only:
                 for s in self.slots: self.runtime.pending(s.magic,True)
             if newly_killed: events.append({"type":"killswitch","text":"Freno diario activado; pausado. Comprobando cierre de cada pata."})
         for s in self.slots:
-            try: events+=self._check_slot(s,acc)
+            if not self.calendar.is_open(s.a,self.server_now()) or not self.calendar.is_open(s.b,self.server_now()):
+                continue
+            try:
+                slot_events=self._check_slot(s,acc)
+                if any(e["type"]=="error" for e in slot_events):
+                    if self.notices.update(s.magic,"pending_close"): events+=slot_events
+                else:
+                    if self.notices.update(s.magic,None): events.append({"type":"news","text":f"{pair_tag(s.a,s.b)}: incidencia resuelta."})
+                    events+=slot_events
+            except MarketClosed: pass
             except Exception as e:
-                events.append({"type":"error","text":f"{pair_tag(s.a,s.b)}: {type(e).__name__}; ciclo bloqueado, revisar terminal."})
+                if self.notices.update(s.magic,type(e).__name__):
+                    events.append({"type":"error","text":f"{pair_tag(s.a,s.b)}: {type(e).__name__}; ciclo bloqueado, revisar terminal."})
         return events
 
     def pause(self):
@@ -240,6 +296,7 @@ class MultiPairTrader:
         if s.last_bar_time is not None and last_time <= s.last_bar_time:
             return events  # sin vela nueva
         s.last_bar_time = last_time
+        self.runtime.put(f"processed:{s.magic}",last_time.isoformat())
 
         z_now, corr_now = self._zcorr(j, s.cfg)
         s.last_z, s.last_corr = z_now, corr_now
@@ -260,7 +317,7 @@ class MultiPairTrader:
             return self._finish_close(s)
 
         if action in (Action.OPEN_LONG, Action.OPEN_SHORT):
-            if not self.state.running or self.state.killed_today:
+            if not self.state.running or self.state.killed_today or self._license_blocks:
                 return events
             if not np.isfinite(corr_now) or corr_now < s.cfg.min_corr:
                 events.append({"type": "skip", "text": f"⏭️ {tag} señal (z={z_now:.2f}) pero corr baja ({corr_now:.2f})."})
@@ -332,11 +389,12 @@ class MultiPairTrader:
         if bar is not None:
             age_days = (pd.Timestamp.now(tz="UTC") - pd.Timestamp(bar)).days
             if age_days >= 3:
-                stale = f"  ⚠️ sin vela nueva hace {age_days}d (¿MT5 desconectado?)"
+                stale = f"  · antigüedad calendario {age_days}d; validar sesiones del servidor"
         lines = [
             "🤖 *Bot MULTI-PAR (MT5)*",
             f"Modo: {'DEMO' if acc['is_demo'] else 'REAL'} | Trading: {'ON ✅' if st.running else 'PAUSA ⏸️'}",
             f"Balance: {acc['balance']:.2f} | Equity: {acc['equity']:.2f} {acc['currency']}",
+            f"Licencia: {'entradas pausadas' if self._license_blocks else 'vigencia por comprobar/activa'}",
             f"Perfil: {CONFIG.pairs_risk_profile} | Kill-switch: {st.daily_max_loss}%",
             f"exit_z: {CONFIG.pairs_exit_z} | size_by_z: {'ON' if CONFIG.pairs_size_by_z else 'OFF'}",
             f"Última vela {CONFIG.pairs_timeframe}: {bar_txt}{stale}",

@@ -59,3 +59,20 @@ Un resultado de demo no sustituye el backtest ni garantiza rentabilidad. Mostrar
 - Tras confirmar que no quedan posiciones ni cierres pendientes, Ctrl+C o detener la tarea/servicio de esa instancia. **Apagar el proceso no cierra posiciones.** No apagarlo dejando una pata huérfana.
 
 No borrar `runtime`, SQLite ni locks manualmente mientras esté activo; el lock se libera al terminar. Nunca recrear la base para quitar el freno. Un scope distinto bloquea el arranque: solicitar migración revisada, con cuenta/terminal correctos y sin posiciones abiertas. Los stops y freno requieren conexión/proceso operativo; no hay SL independiente del broker por pata en esta estrategia.
+
+
+## Reloj, sesiones y preflight de solo lectura
+
+`BROKER_UTC_OFFSET=auto` verifica cotizaciones en avance y recalibra cada ciclo; admite +2/+3 h y otros desfases en medias horas. Si se fija `2` o `3`, debe concordar con ticks frescos; un cambio de horario que lo invalide bloquea la operación hasta verificar la configuración. No compensar una cotización congelada alterando el desfase.
+
+El horario Forex publicado por [JustMarkets](https://get.justmarkets.help/hc/en-us/articles/14318674721820-Available-Trading-Instruments) comienza lunes 00:02 y termina viernes 23:58:59 en hora del servidor. El calendario conserva la vela del viernes para evaluarla el lunes. Para festivos/sesiones particulares verificadas, `BROKER_SESSIONS_FILE` apunta a JSON público, con minutos de servidor y cierre exclusivo; ejemplo de cierre completo: `{"EURUSD.m":{"2026-12-25":[]}}`. `"*"` aplica a todos los símbolos. No dar por confirmadas las sesiones específicas solo por este calendario: verificarlas en el terminal antes de la demo. No usar archivos de credenciales como calendario.
+
+Tras revisión y autorización de la demo, el administrador abre el terminal DEMO esperado y prepara en el entorno del proceso MT5_PATH, MT5_LOGIN, MT5_SERVER y los parámetros exactos de la plantilla cliente (seis pares D1, 60/1,5/4,5/0,7/0,3, perfil y sufijo). Desde `bot_pairs`:
+
+```powershell
+python preflight.py
+```
+
+No requiere contraseña ni token, no lee `.env`, no cambia el login ni envía órdenes. Selecciona símbolos para solicitar datos. No imprimir ni compartir las variables privadas. El informe omite cuenta, servidor, ruta y saldo; muestra verificación, desfase, specs, lotes, margen de ambas patas/direcciones, z, correlación y antigüedad. Código de salida 0 indica consultas verificadas; 2 exige revisar. No certifica ejecución de órdenes ni autoriza arranque. Ejecutarlo en sesión abierta; con ticks inmóviles rechaza el reloj automático. Esta entrega solo lo probó con MT5 simulado.
+
+La licencia cliente dura 12 meses desde activación; avisa al quedar 15 días o menos, una vez por fecha de vencimiento. El vencimiento bloquea entradas y sigue gestionando posiciones. **El freno diario de 5% cierra posiciones abiertas, mientras que el backtest bloqueaba nuevas entradas y mantenía salidas normales.** Mantener explícita esta diferencia al elegir la configuración con Juan y el cliente; los resultados del backtest no se trasladan directamente al bot.

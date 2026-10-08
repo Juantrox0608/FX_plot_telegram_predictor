@@ -93,9 +93,9 @@ def _expires_at(activated_at: datetime) -> datetime:
     return expires_at
 
 
-def demo_status(now: datetime | None = None) -> DemoStatus:
+def demo_status(now: datetime | None = None, *, state_path: Path | None = None) -> DemoStatus:
     now = (now or datetime.now(UTC)).astimezone(UTC)
-    state_path = Path(CONFIG.demo_license_file) if CONFIG.demo_license_file else STATE_FILE
+    state_path = state_path or (Path(CONFIG.demo_license_file) if CONFIG.demo_license_file else STATE_FILE)
     activated_at = _read_activation(state_path)
     if activated_at is None:
         activated_at = now

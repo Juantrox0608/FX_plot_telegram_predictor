@@ -15,14 +15,16 @@ BASE_DIR = Path(__file__).resolve().parent
 # Cada instancia (multi-cuenta) puede apuntar a su propio archivo con ENV_FILE.
 # Por defecto usa ".env" (modo single-cuenta de siempre).
 _ENV_FILE = os.getenv("ENV_FILE", ".env")
-load_dotenv(BASE_DIR / _ENV_FILE)
+if os.getenv("CUANTI_NO_ENV") != "1":
+    load_dotenv(BASE_DIR / _ENV_FILE)
 
 # Carpetas de trabajo (se crean si no existen)
 DATA_DIR = Path(os.getenv("PAIRS_DATA_DIR", str(BASE_DIR / "data"))).expanduser().resolve()
 CHECKPOINT_DIR = BASE_DIR / "model" / "checkpoints"
 REPORT_DIR = BASE_DIR / "reportes_out"
-for _d in (DATA_DIR, CHECKPOINT_DIR, REPORT_DIR):
-    _d.mkdir(parents=True, exist_ok=True)
+if os.getenv("CUANTI_NO_ENV") != "1":
+    for _d in (DATA_DIR, CHECKPOINT_DIR, REPORT_DIR):
+        _d.mkdir(parents=True, exist_ok=True)
 
 
 def _get(name: str, default: str = "") -> str:
@@ -100,6 +102,9 @@ class Config:
     pairs_max_tick_age: int = 120
     instance_id: str = ""
 
+    broker_utc_offset: str = "auto"
+    broker_sessions_file: str = ""
+
     def validate(self) -> list[str]:
         """Devuelve una lista de problemas de configuración (vacía si todo OK)."""
         problems: list[str] = []
@@ -138,6 +143,10 @@ class Config:
             problems.append("PAIRS_MAGIC_BASE fuera de rango")
         if not 1 <= self.pairs_max_tick_age <= 300:
             problems.append("PAIRS_MAX_TICK_AGE fuera de rango 1-300 segundos")
+        try:
+            from broker_time import BrokerClock
+            if self.broker_utc_offset != "auto": BrokerClock._explicit(self.broker_utc_offset)
+        except (ValueError, TypeError): problems.append("BROKER_UTC_OFFSET inválido")
         return problems
 
 
@@ -185,6 +194,8 @@ def load_config() -> Config:
         pairs_magic_base=_get_int("PAIRS_MAGIC_BASE", 20260714),
         pairs_max_tick_age=_get_int("PAIRS_MAX_TICK_AGE", 120),
         instance_id=_get("INSTANCE_ID"),
+        broker_utc_offset=_get("BROKER_UTC_OFFSET", "auto"),
+        broker_sessions_file=_get("BROKER_SESSIONS_FILE"),
     )
 
 

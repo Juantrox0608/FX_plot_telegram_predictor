@@ -33,6 +33,7 @@ def trader(fake,tmp_path,monkeypatch):
 def test_forming_bar_excluded_and_bad_feed_rejected(fake,trader):
     now=int(pd.Timestamp.now(tz="UTC").timestamp())
     def rates(sym,tf,start,count):
+        if start==0: return [dict(time=now,close=1.)]
         assert start==1
         return [dict(time=now-i*86400,close=1.) for i in range(124,0,-1)]
     fake.mt5.copy_rates_from_pos=rates

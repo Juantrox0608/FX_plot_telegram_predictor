@@ -42,3 +42,18 @@ Skills: python-patterns, tdd-workflow, python-testing, security-review, telegram
 - Una operación revertida antes de completar ambas patas puede no quedar como trade completo en el diario. Conciliar movimientos de MT5 con el journal durante demo, incluidos reinicios en medio de la escritura, costos de reversión y cierres manuales. SQLite registra intenciones de seguridad, no sustituye el estado de cuenta del broker.
 - Estado/DB existente con distinto scope requiere migración revisada; **no borrarlo ni recrearlo para eludir el freno**. No mover terminal/cuenta/magics con posiciones abiertas.
 - No habilitar real ni instalar en VPS en este encargo. Activación posterior solo tras revisión y autorización de Juan.
+
+
+## Corrección de los cinco hallazgos de Claude (2026-10-08)
+
+1. Reloj: `BrokerClock` verifica el desfase del servidor cada ciclo con cotizaciones en avance; modo automático en múltiplos de 30 minutos o `BROKER_UTC_OFFSET` explícito verificado. Una cotización congelada hace una hora no puede recalibrarse como fresca. Pruebas +2/+3 h, cambio de horario y desconexión. Se respetan las etiquetas de servidor observadas en esta instalación; no se afirma que todas las instalaciones MT5 etiqueten igual.
+2. Sesiones: no pide datos ni genera avisos por mercado cerrado el sábado, domingo o lunes antes de 00:02 del servidor. Errores se avisan al aparecer/cambiar, al recuperarse y como máximo una vez por hora si persisten. Horario Forex publicado: lunes 00:02 hasta viernes 23:58:59; las excepciones verificadas se cargan de JSON público por símbolo/fecha. La API Python oficial no expone SymbolInfoSessionTrade: no se declara certificada la sesión específica del terminal ni sus festivos sin esa comprobación en demo.
+3. D1: sustituye las 52 horas por la última sesión cerrada esperada y la vela actual en formación. El viernes es válido el lunes; `prime()` no consume esa señal. La fecha procesada persiste para no repetirla al reiniciar.
+4. Selecciona cada símbolo antes de pedir cotizaciones; espera de forma acotada la primera cotización válida y bloquea datos congelados.
+5. Plantilla anual de 12 meses; aviso una sola vez por vencimiento cuando quedan 15 días o menos. Al vencer bloquea entradas y conserva salidas y reconciliación.
+
+`preflight.py` es diagnóstico sin órdenes, Telegram, journal ni activación de licencia. No carga `.env`: usa el entorno del proceso. Verifica terminal/cuenta demo USD hedging sin imprimir sus identificadores, observa el desfase, lista símbolos/specs, calcula lotes y margen de ambas direcciones y muestra z/correlación y antigüedad de velas. La fachada MT5 permite únicamente consultas y selección de símbolos para obtener datos. **No se ejecutó sobre el MT5 real**: su ejecución futura en demo requiere revisión y autorización.
+
+Pruebas primero: 16 fallos antes de implementar; suite final **78 aprobadas** (4,36 s), incluidos preflight positivo de seis pares y rechazo de cuenta/reloj. MT5 y dotenv simulados; sockets bloqueados. No backtests ni cambios de criterios. `.env.example` y untracked ajenos preservados.
+
+**Diferencia respecto del backtest:** el freno diario del bot cierra las patas abiertas al alcanzar 5%; el backtest citado bloqueaba entradas y dejaba seguir sus salidas normales. No se cambió esa conducta ni se equiparan resultados. Juan debe decidir con el cliente después de revisión. Ambas patas siguen redondeadas hacia abajo, diferencia ya documentada.
