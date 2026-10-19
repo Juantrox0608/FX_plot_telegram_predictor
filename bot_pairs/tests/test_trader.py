@@ -23,6 +23,11 @@ def test_z_correlation_matches_lab_and_no_future():
     before=z.iloc[99]; j.loc[100:,"a"]*=10
     assert zscore(j.a,j.b,cfg)[0].iloc[99]==before
 
+def prev_trading_gap(trader,symbol="EURUSD.m"):
+    """Días entre hoy y la sesión cerrada anterior según el calendario del bróker (1 entre semana, 3 los lunes)."""
+    today=trader.server_now().date()
+    return (today-trader.calendar.previous_trading_date(symbol,today)).days
+
 @pytest.fixture
 def trader(fake,tmp_path,monkeypatch):
     monkeypatch.setattr(m,"DATA_DIR",tmp_path)
@@ -32,13 +37,14 @@ def trader(fake,tmp_path,monkeypatch):
 
 def test_forming_bar_excluded_and_bad_feed_rejected(fake,trader):
     now=int(pd.Timestamp.now(tz="UTC").timestamp())
+    gap=prev_trading_gap(trader)   # lunes: la última vela cerrada es la del viernes
     def rates(sym,tf,start,count):
         if start==0: return [dict(time=now,close=1.)]
         assert start==1
-        return [dict(time=now-i*86400,close=1.) for i in range(124,0,-1)]
+        return [dict(time=now-(i+gap-1)*86400,close=1.) for i in range(124,0,-1)]
     fake.mt5.copy_rates_from_pos=rates
     frame=trader._daily("EURUSD.m")
-    assert len(frame)==124 and frame.time.iloc[-1].timestamp()==now-86400
+    assert len(frame)==124 and frame.time.iloc[-1].timestamp()==now-gap*86400
     fake.terminal.connected=False
     with pytest.raises(RuntimeError): trader._daily("EURUSD.m")
 

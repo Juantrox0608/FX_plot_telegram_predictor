@@ -96,7 +96,9 @@ def test_symbol_is_selected_before_tick(fake,tmp_path,monkeypatch):
         return fake.tick
     fake.mt5.symbol_info_tick=tick
     now=int(pd.Timestamp.now(tz="UTC").timestamp())
-    fake.mt5.copy_rates_from_pos=lambda s,tf,pos,n:[dict(time=now if pos==0 else now-86400,close=1.)]
+    today=t.server_now().date()
+    gap=(today-t.calendar.previous_trading_date("EURUSD.m",today)).days   # lunes: vela del viernes
+    fake.mt5.copy_rates_from_pos=lambda s,tf,pos,n:[dict(time=now if pos==0 else now-gap*86400,close=1.)]
     t._daily("EURUSD.m")
 
 
