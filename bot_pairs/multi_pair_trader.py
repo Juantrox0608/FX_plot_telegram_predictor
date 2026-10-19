@@ -186,7 +186,8 @@ class MultiPairTrader:
         if any(spec is None for spec in specs): raise RuntimeError("Specs no disponibles")
         multiplier=min(2.5,max(1.,abs(z_entry)/CONFIG.pairs_entry_z)) if CONFIG.pairs_size_by_z else 1.
         return profile_lots(CONFIG.pairs_risk_profile,balance,*specs,
-                            (ticks[0].ask+ticks[0].bid)/2,(ticks[1].ask+ticks[1].bid)/2,multiplier)
+                            (ticks[0].ask+ticks[0].bid)/2,(ticks[1].ask+ticks[1].bid)/2,multiplier,
+                            small_account=CONFIG.pairs_small_account)
 
     # ---------- ciclo ----------
     def server_now(self):
@@ -397,7 +398,7 @@ class MultiPairTrader:
             f"Modo: {'DEMO' if acc['is_demo'] else 'REAL'} | Trading: {'ON ✅' if st.running else 'PAUSA ⏸️'}",
             f"Balance: {acc['balance']:.2f} | Equity: {acc['equity']:.2f} {acc['currency']}",
             f"Licencia: {'entradas pausadas' if self._license_blocks else 'vigencia por comprobar/activa'}",
-            f"Perfil: {CONFIG.pairs_risk_profile} | Kill-switch: {st.daily_max_loss}%",
+            f"Perfil: {CONFIG.pairs_risk_profile}{' (cuenta pequeña: 0,01 bajo US$1.000)' if CONFIG.pairs_small_account else ''} | Kill-switch: {st.daily_max_loss}%",
             f"exit_z: {CONFIG.pairs_exit_z} | size_by_z: {'ON' if CONFIG.pairs_size_by_z else 'OFF'}",
             f"Última vela {CONFIG.pairs_timeframe}: {bar_txt}{stale}",
             "",

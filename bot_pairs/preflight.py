@@ -69,7 +69,8 @@ def collect_report(client,cfg,now=None):
         item={"pair":f"{a}/{b}","profile":cfg.pairs_risk_profile};report["pairs"].append(item)
         try:
             sa,sb=specs[a],specs[b];ta,tb=ticks[a],ticks[b]
-            lot_a,lot_b=profile_lots(cfg.pairs_risk_profile,acc.balance,sa,sb,(ta.ask+ta.bid)/2,(tb.ask+tb.bid)/2)
+            lot_a,lot_b=profile_lots(cfg.pairs_risk_profile,acc.balance,sa,sb,(ta.ask+ta.bid)/2,(tb.ask+tb.bid)/2,
+                                     small_account=cfg.pairs_small_account)
             item["lots"]=[lot_a,lot_b]
             # No esconder riesgo: calcular ambas direcciones, no solo una.
             margins=[]

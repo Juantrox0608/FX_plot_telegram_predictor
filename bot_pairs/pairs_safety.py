@@ -8,12 +8,15 @@ from pathlib import Path
 from config import CONFIG
 
 PROFILES = {"conservador": .01, "moderado": .02, "agresivo": .03}
+SMALL_ACCOUNT_LOT = .01
 
 def floor_step(value, step):
     return float((Decimal(str(value))/Decimal(str(step))).to_integral_value(rounding=ROUND_FLOOR)*Decimal(str(step)))
 
-def profile_lots(profile, balance, spec_a, spec_b, price_a, price_b, multiplier=1.):
-    if profile not in PROFILES or not math.isfinite(balance) or balance < 1000:
+def profile_lots(profile, balance, spec_a, spec_b, price_a, price_b, multiplier=1., small_account=False):
+    # Cuenta pequeña (opt-in PAIRS_SMALL_ACCOUNT): bajo US$1.000 se opera el lote mínimo, sin perfil ni multiplicador.
+    small = small_account and math.isfinite(balance) and 0 < balance < 1000
+    if profile not in PROFILES or not math.isfinite(balance) or (balance < 1000 and not small):
         raise ValueError("Perfil inválido o balance inferior a US$1.000")
     if not math.isfinite(multiplier) or not 1 <= multiplier <= 2.5:
         raise ValueError("Multiplicador inválido")
@@ -27,9 +30,12 @@ def profile_lots(profile, balance, spec_a, spec_b, price_a, price_b, multiplier=
         else: raise ValueError("Solo mayores con USD; no se inventa conversión")
         notionals.append(n)
     # Perfil sobre la pata con mayor nocional; jamás elevar al mínimo.
-    base=float(Decimal(str(PROFILES[profile]))*Decimal(str(balance))/Decimal("1000")*Decimal(str(multiplier)))
     anchor=0 if notionals[0]>=notionals[1] else 1
-    base=floor_step(base,specs[anchor].volume_step)
+    if small:
+        base=SMALL_ACCOUNT_LOT   # fijo: si el bróker exige más, la validación de abajo bloquea en vez de subir
+    else:
+        base=float(Decimal(str(PROFILES[profile]))*Decimal(str(balance))/Decimal("1000")*Decimal(str(multiplier)))
+        base=floor_step(base,specs[anchor].volume_step)
     target=base*notionals[anchor]
     lots=tuple(base if i==anchor else floor_step(target/n,s.volume_step) for i,(n,s) in enumerate(zip(notionals,specs)))
     for lot,s in zip(lots,specs):

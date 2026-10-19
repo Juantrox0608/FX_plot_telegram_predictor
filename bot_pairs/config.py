@@ -98,6 +98,7 @@ class Config:
 
     symbol_suffix: str = ""
     pairs_risk_profile: str = "conservador"
+    pairs_small_account: bool = False     # bajo US$1.000 opera 0,01 por par en vez de bloquear
     pairs_magic_base: int = 20260714
     pairs_max_tick_age: int = 120
     instance_id: str = ""
@@ -191,6 +192,7 @@ def load_config() -> Config:
         pairs_size_by_z=_get("PAIRS_SIZE_BY_Z", "").lower() in ("1", "true", "yes", "si", "sí"),
         symbol_suffix=_get("SYMBOL_SUFFIX"),
         pairs_risk_profile=_get("PAIRS_RISK_PROFILE", "conservador"),
+        pairs_small_account=_get("PAIRS_SMALL_ACCOUNT", "").lower() in ("1", "true", "yes", "si", "sí"),
         pairs_magic_base=_get_int("PAIRS_MAGIC_BASE", 20260714),
         pairs_max_tick_age=_get_int("PAIRS_MAX_TICK_AGE", 120),
         instance_id=_get("INSTANCE_ID"),

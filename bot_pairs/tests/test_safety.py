@@ -63,6 +63,36 @@ def test_direct_usd_bases_and_below_minimum():
     a.volume_min=.05
     with pytest.raises(ValueError): profile_lots("conservador",3000.,a,a,.9,1.35)
 
+def test_small_account_uses_minimum_lot_below_1000():
+    from pairs_safety import profile_lots
+    a=NS(volume_step=.01,volume_min=.01,volume_max=100.,trade_contract_size=100000.,currency_base="EUR",currency_profit="USD")
+    b=NS(**vars(a))
+    assert profile_lots("conservador",200.,a,b,1.4,1.,small_account=True)==(.01,.01)
+    assert profile_lots("agresivo",200.,a,b,1.4,1.,2.5,small_account=True)==(.01,.01)   # sin multiplicar el mínimo
+    assert profile_lots("conservador",3000.,a,b,1.4,1.,small_account=True)==(.03,.04)   # desde US$1.000, perfil normal
+    with pytest.raises(ValueError): profile_lots("conservador",200.,a,b,1.4,1.)         # sin opt-in sigue bloqueado
+    for bad in (0.,-5.,float("nan")):
+        with pytest.raises(ValueError): profile_lots("conservador",bad,a,b,1.4,1.,small_account=True)
+    a.volume_min=.05
+    with pytest.raises(ValueError): profile_lots("conservador",200.,a,b,1.4,1.,small_account=True)
+
+def test_small_account_flag_from_env(monkeypatch):
+    import config
+    monkeypatch.setenv("PAIRS_SMALL_ACCOUNT","true")
+    assert config.load_config().pairs_small_account is True
+    monkeypatch.delenv("PAIRS_SMALL_ACCOUNT")
+    assert config.load_config().pairs_small_account is False
+
+def test_trader_lots_with_200_only_when_flag_on(fake,tmp_path,monkeypatch):
+    import multi_pair_trader as m
+    monkeypatch.setattr(m,"DATA_DIR",tmp_path)
+    t=m.MultiPairTrader(); slot=t.slots[0]
+    from dataclasses import replace
+    monkeypatch.setattr(m,"CONFIG",replace(m.CONFIG,pairs_small_account=True))
+    assert t._lots(slot,200.,1.6)==(.01,.01)
+    monkeypatch.setattr(m,"CONFIG",replace(m.CONFIG,pairs_small_account=False))
+    with pytest.raises(ValueError): t._lots(slot,200.,1.6)
+
 def test_persisted_kill_and_scope(tmp_path):
     from pairs_safety import RuntimeStore
     p=tmp_path/"state.db"
