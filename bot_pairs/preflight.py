@@ -22,13 +22,23 @@ def collect_report(client,cfg,now=None):
     mt5=ReadOnlyMT5(client)
     acc=mt5.account_info(); terminal=mt5.terminal_info()
     from pathlib import Path
-    verified=(acc is not None and terminal is not None and terminal.connected
-              and bool(cfg.mt5_login) and acc.login==cfg.mt5_login and acc.server==cfg.mt5_server
-              and bool(cfg.mt5_path) and Path(terminal.path).resolve()==Path(cfg.mt5_path).resolve().parent
-              and acc.currency=="USD" and acc.margin_mode==2 and acc.trade_mode==0)
-    report={"readonly":True,"account_checks":bool(verified),"pairs":[],"symbols":[],"offset_hours":None,"errors":[]}
-    if not verified:
-        report["errors"].append("Cuenta/servidor/terminal/demo/USD/hedging no coinciden; diagnóstico detenido.")
+    # Cada revisión con su motivo, sin imprimir login, servidor ni ruta.
+    if acc is None or terminal is None or not terminal.connected:
+        failed=["MT5 no conectado o sin cuenta abierta"]
+    else:
+        checks=[(bool(cfg.mt5_login) and acc.login==cfg.mt5_login,"número de cuenta distinto al de cliente.env"),
+                (acc.server==cfg.mt5_server,"servidor distinto al de cliente.env"),
+                (bool(cfg.mt5_path) and Path(terminal.path).resolve()==Path(cfg.mt5_path).resolve().parent,
+                 "el MT5 abierto no es el de MT5_PATH"),
+                (acc.currency=="USD","la cuenta no está en USD"),
+                (acc.margin_mode==2,"cuenta no es hedging (cobertura)"),
+                (acc.trade_mode==0 or cfg.pairs_allow_real,"cuenta REAL sin PAIRS_ALLOW_REAL=true")]
+        failed=[why for ok,why in checks if not ok]
+    kind=None if acc is None else ("DEMO" if acc.trade_mode==0 else "REAL")
+    report={"readonly":True,"account_checks":not failed,"failed_checks":failed,"account_kind":kind,
+            "pairs":[],"symbols":[],"offset_hours":None,"errors":[]}
+    if failed:
+        report["errors"].append("Cuenta no verificada: "+"; ".join(failed)+". Diagnóstico detenido.")
         return report
     pairs=[]
     for part in cfg.pairs_list.split(","):
@@ -98,7 +108,8 @@ def collect_report(client,cfg,now=None):
     return report
 
 def render_report(r):
-    lines=["PREFLIGHT — SOLO LECTURA, SIN ÓRDENES", "Cuenta/servidor/terminal DEMO, USD hedging: "+("OK" if r["account_checks"] else "NO VERIFICADO"),
+    lines=["PREFLIGHT — SOLO LECTURA, SIN ÓRDENES",
+           f"Cuenta {r.get('account_kind') or '—'} · cuenta/servidor/terminal, USD, hedging: "+("OK" if r["account_checks"] else "NO VERIFICADO"),
            f"Desfase observado/verificado: {r['offset_hours']} h", "Calendario: Forex publicado; excepciones por símbolo/fecha si configuradas."]
     for s in r["symbols"]:
         lines.append(f"{s['symbol']}: encontrado={s['found']}; mínimo={s.get('minimum','—')}; paso={s.get('step','—')}; contrato={s.get('contract','—')}; filling mask={s.get('filling_mask','—')}; antigüedad vela={s.get('last_bar_age_hours','—')} h")

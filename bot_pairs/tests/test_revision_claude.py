@@ -179,8 +179,22 @@ def test_preflight_six_pairs_ready_with_verified_server_time(fake):
 def test_preflight_rejects_wrong_account_and_stale_clock(fake):
     from preflight import collect_report
     fake.acc.trade_mode=2
-    assert not collect_report(fake.mt5,CONFIG,now=BASE)["account_checks"]
+    report=collect_report(fake.mt5,CONFIG,now=BASE)
+    assert not report["account_checks"] and report["failed_checks"]==["cuenta REAL sin PAIRS_ALLOW_REAL=true"]
     fake.acc.trade_mode=0
     fake.tick.time=int(BASE-3600)
     report=collect_report(fake.mt5,CONFIG,now=BASE)
     assert not report["ready"] and report["offset_hours"] is None
+
+
+def test_preflight_accepts_real_only_with_opt_in_and_names_failures(fake):
+    from dataclasses import replace
+    from preflight import collect_report, render_report
+    fake.acc.trade_mode=2
+    report=collect_report(fake.mt5,replace(CONFIG,pairs_allow_real=True),now=BASE)
+    assert report["account_checks"] and report["account_kind"]=="REAL"
+    assert "REAL" in render_report(report)
+    fake.acc.trade_mode=0; fake.acc.margin_mode=0; fake.acc.server="Otro"
+    report=collect_report(fake.mt5,CONFIG,now=BASE)
+    assert report["failed_checks"]==["servidor distinto al de cliente.env","cuenta no es hedging (cobertura)"]
+    assert "Otro" not in render_report(report)
