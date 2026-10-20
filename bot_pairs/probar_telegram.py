@@ -7,6 +7,7 @@ No muestra el token. No toca MT5 ni abre operaciones.
 from __future__ import annotations
 
 import json
+import ssl
 import sys
 import urllib.error
 import urllib.parse
@@ -21,16 +22,28 @@ HINTS = {
 }
 
 
+def _ssl_context() -> ssl.SSLContext:
+    # Los mismos certificados que usa la librería de Telegram del bot (httpx -> certifi); Windows Server a veces no trae la raíz.
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
+
+
 def send(token: str, chat_id: int, text: str, timeout: float = 15.0) -> tuple[bool, str]:
     data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
     try:
-        with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data, timeout) as r:
+        with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data, timeout,
+                                    context=_ssl_context()) as r:
             body = json.load(r)
         return bool(body.get("ok")), "Mensaje enviado. Revisa el Telegram del cliente."
     except urllib.error.HTTPError as e:
         return False, HINTS.get(e.code, f"Telegram respondió con error {e.code}.")
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
-        return False, f"Sin conexión a Telegram desde este equipo ({type(e).__name__})."
+    except urllib.error.URLError as e:
+        return False, f"Sin conexión a Telegram desde este equipo: {getattr(e, 'reason', e)}"
+    except (TimeoutError, OSError) as e:
+        return False, f"Sin conexión a Telegram desde este equipo: {type(e).__name__} {e}"
 
 
 def main() -> int:
